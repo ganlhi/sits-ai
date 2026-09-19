@@ -13,4 +13,3 @@ export * from './bearing';
 export * from './thrust';
 export * from './movement';
 export * from './firingArc';
-export * from './sampleArcs';

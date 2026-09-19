@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { LEVEL_ATTITUDE, attitude, roll } from './attitude';
 import { blue, green, purple, windowDirection, yellow, type AvidWindow } from './avid';
 import { MOUNTS, bodyWindow, mountArcColour, nearestFacing, wedgeCovers } from './firingArc';
-import { SAMPLE_ARCS } from './sampleArcs';
 import { fromAzPitch } from './vec3';
+import { SAMPLE_SD } from '../../data/ships/sampleSd';
+
+const SAMPLE_ARCS = { forward: SAMPLE_SD.mounts.forward.arc, aft: SAMPLE_SD.mounts.aft.arc, port: SAMPLE_SD.mounts.port.arc, starboard: SAMPLE_SD.mounts.starboard.arc };
 
 const colours = (a = LEVEL_ATTITUDE, w: AvidWindow) =>
   Object.fromEntries(MOUNTS.map((m) => [m, mountArcColour(SAMPLE_ARCS, m, a, windowDirection(w))]));

@@ -12,7 +12,6 @@ import {
   LEVEL_ATTITUDE,
   MARKER_NAMES,
   MOUNTS,
-  SAMPLE_ARCS,
   applyManeuver,
   attitudeFromWindows,
   bodyWindow,
@@ -35,8 +34,11 @@ import {
   type Mount,
   type RollDirection,
 } from '../domain/geometry';
+import { SAMPLE_SD } from '../data/ships/sampleSd';
 import { AvidFlat } from '../ui/avid/AvidFlat';
 import { AvidSphere } from '../ui/avid/AvidSphere';
+
+const SAMPLE_ARCS = { forward: SAMPLE_SD.mounts.forward.arc, aft: SAMPLE_SD.mounts.aft.arc, port: SAMPLE_SD.mounts.port.arc, starboard: SAMPLE_SD.mounts.starboard.arc };
 
 const byKey = (k: string): AvidWindow => {
   const w = ALL_WINDOWS.find((x) => windowKey(x) === k);

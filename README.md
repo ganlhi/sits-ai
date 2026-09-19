@@ -13,7 +13,11 @@ execute them on the physical table and report back what happened.
 src/domain/          pure TypeScript, no DOM / React / storage imports — the rules engine
   geometry/          Phase 2: hexes, vectors, the AVID, attitude, bearings, thrust plotting,
                      turn motion, firing arcs (tests alongside, built from the book's examples)
-src/ui/              React components (AvidFlat, AvidSphere, …)
+  ssd/               Phase 3: the Track abstraction, hit location table, ship class model,
+                     damage state, validation
+src/data/ships/      ship classes; sampleSd.ts is the core book's Sample-class SD, the fixture
+src/storage/         persistence (ship library in localStorage; IndexedDB comes in Phase 4)
+src/ui/              React components (AvidFlat, AvidSphere, SsdSheet, SsdEditor, …)
 src/inspector/       the dual-view AVID inspector (dev tool, becomes the Phase 4 widget)
 scripts/             environment helpers
 ```
@@ -48,7 +52,16 @@ npm run build
 |---|---|
 | 1 — rules synthesis | done |
 | 2 — geometry kernel + dual-view AVID inspector | done |
-| 3 — SSD schema, Sample-class fixture, editor | next |
+| 3 — SSD schema, Sample-class fixture, editor | done |
+| 4 — playable notebook PWA (no AI) | next |
+
+## Entering a ship class
+
+Ship classes are typed in from the physical SSD in the **Ship classes** screen, using text
+forms that read like the card: a track is `0 0 1 3 | 4`, `_*8 (W)` or `2*9 1 1*5 (1)*3`; a
+weapon line is `16M | !8` (a countdown of 8 tubes); the hit location table is 11 rows of 19
+codes with `.` for blank and `*SI*` for the Core. Classes are validated as you type, saved in
+the browser, and can be exported/imported as JSON. The built-in Sample class is the template.
 
 Things transcribed from the scan that should be checked against the physical components are
 marked `[verify …]` in source comments and listed in RULES.md §23.
