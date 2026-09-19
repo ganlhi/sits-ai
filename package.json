@@ -1,0 +1,33 @@
+{
+  "name": "sits-ai",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "AI opponent for the Saganami Island Tactical Simulator tabletop wargame",
+  "scripts": {
+    "_comment": "Tools are run through node on relative paths: the project path contains an emoji that breaks the node_modules/.bin shims on Windows. See scripts/install-deps.ps1.",
+    "test": "node ./node_modules/vitest/vitest.mjs run",
+    "test:watch": "node ./node_modules/vitest/vitest.mjs",
+    "typecheck": "node ./node_modules/typescript/bin/tsc --noEmit",
+    "dev": "node ./node_modules/vite/bin/vite.js",
+    "build": "node ./node_modules/typescript/bin/tsc --noEmit && node ./node_modules/vite/bin/vite.js build",
+    "preview": "node ./node_modules/vite/bin/vite.js preview"
+  },
+  "devDependencies": {
+    "@types/react": "19.2",
+    "@types/react-dom": "19.2",
+    "@types/three": "^0.186.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "fast-check": "^4.10.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.1"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.8",
+    "@react-three/fiber": "^9.7.0",
+    "react": "19.2",
+    "react-dom": "19.2",
+    "three": "^0.186.0"
+  }
+}
