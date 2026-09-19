@@ -15,9 +15,11 @@ src/domain/          pure TypeScript, no DOM / React / storage imports — the r
                      turn motion, firing arcs (tests alongside, built from the book's examples)
   ssd/               Phase 3: the Track abstraction, hit location table, ship class model,
                      damage state, validation
+  game/              Phase 4: game state as a fold over events, the nine-step turn machine,
+                     derived facts (markers, launch geometry, arcs)
 src/data/ships/      ship classes; sampleSd.ts is the core book's Sample-class SD, the fixture
-src/storage/         persistence (ship library in localStorage; IndexedDB comes in Phase 4)
-src/ui/              React components (AvidFlat, AvidSphere, SsdSheet, SsdEditor, …)
+src/storage/         persistence: ship library (localStorage), game event logs (IndexedDB/Dexie)
+src/ui/              React components (AvidFlat, AvidSphere, SsdSheet, SsdEditor, game screens …)
 src/inspector/       the dual-view AVID inspector (dev tool, becomes the Phase 4 widget)
 scripts/             environment helpers
 ```
@@ -53,7 +55,22 @@ npm run build
 | 1 — rules synthesis | done |
 | 2 — geometry kernel + dual-view AVID inspector | done |
 | 3 — SSD schema, Sample-class fixture, editor | done |
-| 4 — playable notebook PWA (no AI) | next |
+| 4 — playable notebook PWA (no AI) | done — needs its table test (≤ 90 s of entry per turn) |
+| 5 — combat resolution engine | next |
+
+## Playing with the notebook
+
+**Games** → create → add the ships on the table (class, side, who controls it, hex, altitude,
+vectors, Forward and Top windows) → *Start turn 1*. The step bar follows the Reference Card:
+markers, plotting (lock every ship's pivot/roll/thrust; the app shows the Midpoint facing,
+displacement and EoT), launch geometry (ranges, salvoes, bearings, impact windows, which mounts
+bear), impact prompts with beam ranges, move prompts with the attitude at the Midpoint and EoT
+(flat AVID, optional 3-D), and end of turn (vector consolidation shown step by step). *End turn*
+moves every ship to its EoT marker. Whatever the table disagrees with, report it in the ship
+panel; tap boxes on the sheet to mark damage. Every change is an event: **Undo** removes the
+last one, and a game exports as its event log.
+
+Installable and offline: `npm run build` then serve `dist/` (or `npm run preview`).
 
 ## Entering a ship class
 

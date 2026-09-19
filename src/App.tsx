@@ -1,11 +1,15 @@
-import { useState } from 'react';
-import { InspectorApp } from './inspector/InspectorApp';
+import { lazy, Suspense, useState } from 'react';
+import { GamesScreen } from './ui/game/GamesScreen';
+import { GameScreen } from './ui/game/GameScreen';
 import { SsdEditor } from './ui/ssd/SsdEditor';
 
-type Screen = 'ships' | 'avid';
+const InspectorApp = lazy(() => import('./inspector/InspectorApp').then((m) => ({ default: m.InspectorApp })));
+
+type Route = { screen: 'games' } | { screen: 'game'; id: string } | { screen: 'ships' } | { screen: 'avid' };
 
 export function App() {
-  const [screen, setScreen] = useState<Screen>('ships');
+  const [route, setRoute] = useState<Route>({ screen: 'games' });
+  const tab = route.screen === 'game' ? 'games' : route.screen;
   return (
     <div className="app">
       <nav className="topnav">
@@ -13,17 +17,25 @@ export function App() {
         <div className="seg" role="tablist">
           {(
             [
+              ['games', 'Games'],
               ['ships', 'Ship classes'],
               ['avid', 'AVID inspector'],
-            ] as [Screen, string][]
+            ] as const
           ).map(([s, label]) => (
-            <button key={s} type="button" role="tab" aria-pressed={screen === s} onClick={() => setScreen(s)}>
+            <button key={s} type="button" role="tab" aria-pressed={tab === s} onClick={() => setRoute({ screen: s })}>
               {label}
             </button>
           ))}
         </div>
       </nav>
-      {screen === 'ships' ? <SsdEditor /> : <InspectorApp />}
+      {route.screen === 'games' && <GamesScreen onOpen={(id) => setRoute({ screen: 'game', id })} />}
+      {route.screen === 'game' && <GameScreen gameId={route.id} onBack={() => setRoute({ screen: 'games' })} />}
+      {route.screen === 'ships' && <SsdEditor />}
+      {route.screen === 'avid' && (
+        <Suspense fallback={<p className="note">Loading the inspector…</p>}>
+          <InspectorApp />
+        </Suspense>
+      )}
     </div>
   );
 }
