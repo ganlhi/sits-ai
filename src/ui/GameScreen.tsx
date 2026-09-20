@@ -81,7 +81,7 @@ export function GameScreen({ gameId, onBack }: { gameId: string; onBack: () => v
         <aside className="panel">
           <h2>Table</h2>
           <HexMap game={game} />
-          <p className="note">The highlighted hex is the centre of the map. Numbers are altitudes; markers appear for AI ships once their orders are revealed.</p>
+          <p className="note">The highlighted hex is the centre of the map. Numbers are altitudes; markers appear for AI ships once their orders are revealed. Scroll or pinch to zoom, drag to pan, double-click to fit.</p>
           <ShiftTablePanel game={game} update={update} />
           <AddShipPanel game={game} update={update} />
         </aside>

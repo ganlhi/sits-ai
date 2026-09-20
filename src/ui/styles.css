@@ -387,11 +387,36 @@ table.list th {
 }
 
 /* hex map */
+.hexmap-wrap {
+  position: relative;
+}
+
 svg.hexmap {
+  display: block;
   width: 100%;
-  max-height: 380px;
+  height: 380px;
   background: var(--bg);
   border-radius: 8px;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+
+svg.hexmap:active {
+  cursor: grabbing;
+}
+
+.hexmap-tools {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+}
+
+.hexmap-tools button {
+  min-width: 30px;
+  padding: 3px 8px;
 }
 
 svg.hexmap .hex {
