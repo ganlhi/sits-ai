@@ -4,9 +4,10 @@
  */
 import { useState } from 'react';
 import { ALL_WINDOWS, VECTOR_DIRECTIONS, purple, velocity, windowKey, windowLabel, windowsAtDistance, windowsEqual, yellow, type AvidWindow } from '../../domain/geometry';
-import { AVERAGE_GRADES, SIDES, shipsOf, type Controller, type GameEvent, type GameState, type Grades, type Side } from '../../domain/game';
+import { AVERAGE_GRADES, SIDES, shipsOf, type Controller, type Doctrine, type GameEvent, type GameState, type Grades, type Side } from '../../domain/game';
 import { GRADES, OFFICER_TYPES, type Grade, type OfficerType, type ShipClass } from '../../domain/ssd';
 import { listShips } from '../../storage/shipLibrary';
+import { DoctrineSelect } from './AiPanels';
 import { fmtPos } from './HexMap';
 
 export function SetupPanel({ game, dispatch }: { game: GameState; dispatch: (e: GameEvent) => void }) {
@@ -16,6 +17,7 @@ export function SetupPanel({ game, dispatch }: { game: GameState; dispatch: (e: 
   const [side, setSide] = useState<Side>('green');
   const [controller, setController] = useState<Controller>('player');
   const [grades, setGrades] = useState<Grades>(AVERAGE_GRADES);
+  const [doctrine, setDoctrine] = useState<Doctrine>('balanced');
   const [q, setQ] = useState('0');
   const [r, setR] = useState('0');
   const [alt, setAlt] = useState('0');
@@ -50,6 +52,7 @@ export function SetupPanel({ game, dispatch }: { game: GameState; dispatch: (e: 
           side,
           controller,
           grades,
+          doctrine,
           position: { hex: { x, y: -x - z, z }, alt: a },
           velocity: v,
           forward: fwd,
@@ -101,6 +104,12 @@ export function SetupPanel({ game, dispatch }: { game: GameState; dispatch: (e: 
               </div>
             </div>
           </div>
+          {controller === 'ai' && (
+            <div className="field field-wide">
+              <label>Doctrine</label>
+              <DoctrineSelect value={doctrine} onChange={setDoctrine} />
+            </div>
+          )}
           <div className="field">
             <label>q</label>
             <input value={q} onChange={(e) => setQ(e.target.value)} />
@@ -183,7 +192,18 @@ export function SetupPanel({ game, dispatch }: { game: GameState; dispatch: (e: 
                     <b>{s.name}</b> <span className="note">{game.classes[s.classId]?.className}</span>
                   </td>
                   <td>{s.side}</td>
-                  <td>{s.controller}</td>
+                  <td>
+                    <div className="row">
+                      <div className="seg">
+                        {(['player', 'ai'] as Controller[]).map((c) => (
+                          <button key={c} type="button" aria-pressed={s.controller === c} onClick={() => dispatch({ type: 'ControllerChanged', shipId: s.id, controller: c })}>
+                            {c}
+                          </button>
+                        ))}
+                      </div>
+                      {s.controller === 'ai' && <DoctrineSelect value={s.doctrine} onChange={(d) => dispatch({ type: 'DoctrineChanged', shipId: s.id, doctrine: d })} />}
+                    </div>
+                  </td>
                   <td className="note">{fmtPos(s.position)}</td>
                   <td>
                     <button type="button" onClick={() => dispatch({ type: 'ShipRemoved', shipId: s.id })}>

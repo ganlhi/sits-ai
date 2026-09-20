@@ -19,6 +19,7 @@ src/domain/          pure TypeScript, no DOM / React / storage imports — the r
                      derived facts (markers, launch geometry, arcs)
   combat/            Phase 5: dice and distributions, the Missile Defense Card, missile defense,
                      damage allocation, beams, damage control, the expectation layer
+  ai/                Phase 6: doctrines, candidate generation, the evaluator, order sheets, seals
 src/data/ships/      ship classes; sampleSd.ts is the core book's Sample-class SD, the fixture
 src/storage/         persistence: ship library (localStorage), game event logs (IndexedDB/Dexie)
 src/ui/              React components (AvidFlat, AvidSphere, SsdSheet, SsdEditor, game screens …)
@@ -59,7 +60,22 @@ npm run build
 | 3 — SSD schema, Sample-class fixture, editor | done |
 | 4 — playable notebook PWA (no AI) | done — needs its table test (≤ 90 s of entry per turn) |
 | 5 — combat resolution engine (resolve + expect) | done |
-| 6 — AI opponent v1 | next |
+| 6 — AI opponent v1 (heuristic, sealed orders, order sheets) | done — needs its three-game playtest |
+| 7 — AI v2, officers/miracles, pods, LACs | next, only if v1 plays too shallow |
+
+## The opponent
+
+Mark a ship *ai* at setup and give it a doctrine (balanced, missile duel, close to beam range,
+evade). When the plotting step opens the AI plots every one of its ships first — it enumerates
+every legal pivot/roll/thrust within the ship's ratings, scores each with the expectation layer
+(boxes it expects to deal by missiles and beams minus boxes it expects to take, with the enemy
+assumed to drift and hold attitude, plus the doctrine's range and wedge preferences and a little
+noise) — locks the best, and shows only a **seal** (a hash of the orders). Lock your own ships
+and the order sheets are revealed in the book's notation with a one-line reason: *"Pivot 2
+windows: Forward from A(yellow) to A/B(blue, upper). Roll 1 window to starboard. Thrust 2 along
+the Midpoint facing …: write 1 in A, 1 in B into the AVID arrows. Launch from the Starboard
+Broadside: 32 tubes at HMS X, Middle + Late salvoes."* Step 3 lists its launches; the move
+steps repeat the sheet next to the attitude to set.
 
 ## Combat at the table
 

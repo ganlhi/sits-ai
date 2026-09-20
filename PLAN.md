@@ -326,3 +326,19 @@ work rather than after it.
 4. **Digital dice** — the current design has all dice rolled on the table and reported. An option to
    let the app roll would cut data entry substantially at the cost of table feel. Worth deciding
    before Phase 4's input model is designed.
+
+## Status (2026-09-20)
+
+| Phase | Commit | Gate |
+|---|---|---|
+| 2 Geometry kernel + inspector | `bd6ec0e` | met: Z1.0, C1.14, Dulcinea, B3.25x, p.24 examples reproduce |
+| 3 SSD schema + Sample fixture + editor | `6fa5500` | met: Sample round-trips through JSON and the editor text form |
+| 4 Notebook PWA | `a57ea3a` | **open**: play a real game at the table, time the entry |
+| 5 Combat engine | `2d1f6e5` | met: examples reproduce; 20k-sample Monte Carlo matches `expect` |
+| 6 AI v1 | this commit | **open**: three games; no illegal or ambiguous orders |
+
+Known limits to carry into Phase 7–9: the AI assumes the enemy drifts and holds attitude (no
+lookahead); wedge interposition is valued only through the defense tables; the 3-D view's
+labels use a font fetched from a CDN (bundle one for offline); a plan is computed on the main
+thread (~0.3 s per ship on a desktop; move to a Worker if phones lag); firing-arc grey/white
+on the Sample class and the `3d10` reading (0–9 vs 1–10) are still `[verify]`.

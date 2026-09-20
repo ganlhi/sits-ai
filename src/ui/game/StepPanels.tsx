@@ -7,6 +7,7 @@ import { MOUNTS, formatVelocity, windowLabel, type ArcColour, type Mount } from 
 import { attitudeAt, engagements, markersAt, shipMotion, shipsOf, shipClassOf, type GameEvent, type GameState, type ShipState } from '../../domain/game';
 import { MARKER_NAMES } from '../../domain/geometry';
 import { AvidFlat } from '../avid/AvidFlat';
+import { AiPlotPanel, OrderSheet, aiShips } from './AiPanels';
 import { BeamResolver, DamageControlPanel, ImpactResolver } from './CombatPanels';
 import { fmtPos } from './HexMap';
 import { OrdersPanel } from './OrdersPanel';
@@ -65,26 +66,44 @@ export function MarkersStep({ game }: { game: GameState }) {
 }
 
 export function PlotStep({ game, dispatch }: { game: GameState; dispatch: (e: GameEvent) => void }) {
-  const ships = live(game);
+  const ships = live(game).filter((s) => s.controller === 'player');
   const locked = ships.filter((s) => s.orders).length;
   return (
-    <section className="panel">
-      <h2>
-        Plot orders <span className="note">{locked}/{ships.length} locked</span>
-      </h2>
-      <p className="note">Plotting is simultaneous and secret: lock every ship before revealing. AI ships take their own orders from Phase 6; until then enter both sides here.</p>
-      {ships.map((s) => (
-        <OrdersPanel key={s.id} game={game} ship={s} dispatch={dispatch} />
-      ))}
-    </section>
+    <>
+      <AiPlotPanel game={game} dispatch={dispatch} />
+      <section className="panel">
+        <h2>
+          Plot your orders <span className="note">{locked}/{ships.length} locked</span>
+        </h2>
+        <p className="note">Plotting is simultaneous and secret: the opponent has already sealed its orders above. Lock every ship, then reveal.</p>
+        {ships.map((s) => (
+          <OrdersPanel key={s.id} game={game} ship={s} dispatch={dispatch} />
+        ))}
+      </section>
+    </>
   );
 }
 
 export function LaunchStep({ game }: { game: GameState }) {
   const es = engagements(game);
+  const ai = aiShips(game).filter((s) => s.orders?.launches?.length);
   return (
     <section className="panel">
       <h2>Missile launch</h2>
+      {ai.length > 0 && (
+        <div className="ai-launches">
+          <h3>Opponent launches</h3>
+          <ul>
+            {ai.flatMap((s) =>
+              (s.orders?.launches ?? []).map((l, i) => (
+                <li key={`${s.id}-${i}`}>
+                  <b>{s.name}</b>: {shipClassOf(game, s).mounts[l.mount].name}, {l.missiles} tubes at <b>{game.ships[l.targetId]?.name ?? l.targetId}</b>, {l.timings.map((t) => t[0]!.toUpperCase() + t.slice(1)).join(' + ')}. Fill one Salvo Card.
+                </li>
+              )),
+            )}
+          </ul>
+        </div>
+      )}
       <p className="note">Salvoes by End-of-Turn to End-of-Turn range. Early: bearing from current to current; Middle: current to the target's Midpoint; Late: own Midpoint to the target's EoT. The Impact Window is the reciprocal. Letters show which mounts bear now (black cannot).</p>
       {es.length === 0 && <p className="note">No opposing ships.</p>}
       <table className="games-table">
@@ -246,6 +265,7 @@ export function MoveStep({ game, fraction }: { game: GameState; fraction: 0.5 | 
                   </tbody>
                 </table>
               </div>
+              {s.controller === 'ai' && s.orders && fraction === 0.5 && <OrderSheet game={game} ship={s} />}
               <button type="button" onClick={() => setSphere(sphere === s.id ? null : s.id)}>
                 {sphere === s.id ? 'Hide 3-D' : 'Show in 3-D'}
               </button>

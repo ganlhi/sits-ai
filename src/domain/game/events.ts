@@ -16,7 +16,7 @@ import {
 } from '../geometry';
 import { expireRepairs } from '../combat/damageControl';
 import { freshDamage, type BoxStatus, type Grade, type Mount, type OfficerType, type ShipClass, type ShipDamage, type TrackId } from '../ssd';
-import { TURN_STEPS, nextStep, previousStep, type GameState, type ShipId, type ShipSetup, type ShipState, type TurnOrders, type TurnStep } from './types';
+import { TURN_STEPS, nextStep, previousStep, type Controller, type Doctrine, type GameState, type ShipId, type ShipSetup, type ShipState, type TurnOrders, type TurnStep } from './types';
 
 export type GameEvent =
   | { readonly type: 'GameCreated'; readonly id: string; readonly name: string; readonly createdAt: string }
@@ -48,6 +48,8 @@ export type GameEvent =
       readonly note: string;
     }
   | { readonly type: 'GradeChanged'; readonly shipId: ShipId; readonly officer: OfficerType; readonly grade: Grade }
+  | { readonly type: 'DoctrineChanged'; readonly shipId: ShipId; readonly doctrine: Doctrine }
+  | { readonly type: 'ControllerChanged'; readonly shipId: ShipId; readonly controller: Controller }
   | { readonly type: 'MagazineReported'; readonly shipId: ShipId; readonly mount: Mount; readonly remaining: number }
   | { readonly type: 'ShipDestroyed'; readonly shipId: ShipId; readonly destroyed: boolean }
   | { readonly type: 'NoteAdded'; readonly text: string };
@@ -70,6 +72,7 @@ function shipFromSetup(g: GameState, s: ShipSetup): ShipState {
     side: s.side,
     controller: s.controller,
     grades: s.grades,
+    doctrine: s.doctrine ?? 'balanced',
     position: s.position,
     velocity: s.velocity,
     halfDisplacements: [],
@@ -177,6 +180,10 @@ export function reduce(g: GameState, e: GameEvent): GameState {
         withShip(g, e.shipId, (s) => ({ ...s, grades: { ...s.grades, [e.officer]: e.grade } })),
         `${g.ships[e.shipId]?.name ?? e.shipId}: ${e.officer} now ${e.grade}`,
       );
+    case 'DoctrineChanged':
+      return withShip(g, e.shipId, (s) => ({ ...s, doctrine: e.doctrine }));
+    case 'ControllerChanged':
+      return withShip(g, e.shipId, (s) => ({ ...s, controller: e.controller }));
     case 'MagazineReported':
       return withShip(g, e.shipId, (s) => ({ ...s, damage: { ...s.damage, magazines: { ...s.damage.magazines, [e.mount]: e.remaining } } }));
     case 'ShipDestroyed':

@@ -370,3 +370,44 @@ ul.effects li.effect-lost,
 ul.effects li.effect-deflected {
   color: var(--muted);
 }
+
+/* opponent */
+.ai-panel {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+  margin-bottom: 12px;
+}
+
+.ai-ship {
+  border-top: 1px solid var(--line);
+  padding: 6px 0;
+}
+
+.ai-ship h3 {
+  margin: 0;
+}
+
+.order-sheet ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+
+.order-sheet li {
+  margin: 2px 0;
+}
+
+.seal {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  letter-spacing: 0.08em;
+}
+
+.ai-launches {
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--line));
+  border-radius: 8px;
+  padding: 6px 10px;
+  margin-bottom: 10px;
+}
+
+.ai-launches h3 {
+  margin: 0 0 4px;
+  font-size: 0.9rem;
+}

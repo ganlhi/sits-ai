@@ -4,8 +4,8 @@
  * A game is a fold over events (see events.ts). The state holds a snapshot of every ship class
  * in use so a saved game stays valid if the library changes later.
  */
-import type { Attitude, AvidWindow, Maneuver, Position, Velocity, VectorDirection } from '../geometry';
-import type { Grade, OfficerType, ShipClass, ShipDamage } from '../ssd';
+import type { Attitude, AvidWindow, Maneuver, Mount, Position, Velocity, VectorDirection } from '../geometry';
+import type { Grade, OfficerType, SalvoTiming, ShipClass, ShipDamage } from '../ssd';
 
 export type Side = 'red' | 'green';
 export const SIDES: readonly Side[] = ['red', 'green'];
@@ -40,6 +40,10 @@ export function previousStep(step: TurnStep): TurnStep | null {
   return i > 0 ? (TURN_STEPS[i - 1] ?? null) : null;
 }
 
+/** How an AI-controlled ship fights (weights live in domain/ai). */
+export type Doctrine = 'balanced' | 'missileDuel' | 'closeToBeams' | 'evade';
+export const DOCTRINES: readonly Doctrine[] = ['balanced', 'missileDuel', 'closeToBeams', 'evade'];
+
 export type Grades = Readonly<Record<OfficerType, Grade>>;
 
 export const AVERAGE_GRADES: Grades = { TAC: 'average', EWO: 'average', ATO: 'average', HELM: 'average', ENG: 'average', CREW: 'average' };
@@ -52,19 +56,31 @@ export interface ShipSetup {
   readonly side: Side;
   readonly controller: Controller;
   readonly grades: Grades;
+  readonly doctrine?: Doctrine;
   readonly position: Position;
   readonly velocity: Velocity;
   readonly forward: AvidWindow;
   readonly top: AvidWindow;
 }
 
-/** One ship's plotted orders for the turn (step 2). Phase 5 adds missile launches. */
+/** A planned missile launch (step 3): one mount at one target, the salvoes it will fire. */
+export interface Launch {
+  readonly mount: Mount;
+  readonly targetId: ShipId;
+  readonly timings: readonly SalvoTiming[];
+  readonly missiles: number;
+}
+
+/** One ship's plotted orders for the turn (step 2), plus the launches it intends for step 3. */
 export interface TurnOrders {
   readonly maneuver: Maneuver;
   /** The vector change from thrust, as written in the grey areas of the AVID arrows. */
   readonly thrust: Velocity;
   /** How much thrust was spent (for the record; the delta is what matters). */
   readonly thrustUsed: number;
+  readonly launches?: readonly Launch[];
+  /** The AI's one-line reason, for the order sheet. */
+  readonly rationale?: string;
 }
 
 export interface ShipState {
@@ -74,6 +90,7 @@ export interface ShipState {
   readonly side: Side;
   readonly controller: Controller;
   readonly grades: Grades;
+  readonly doctrine: Doctrine;
   readonly position: Position;
   readonly velocity: Velocity;
   readonly halfDisplacements: readonly VectorDirection[];
