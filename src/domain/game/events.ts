@@ -14,7 +14,8 @@ import {
   type Velocity,
   type VectorDirection,
 } from '../geometry';
-import { freshDamage, type BoxStatus, type Mount, type ShipClass, type TrackId } from '../ssd';
+import { expireRepairs } from '../combat/damageControl';
+import { freshDamage, type BoxStatus, type Grade, type Mount, type OfficerType, type ShipClass, type ShipDamage, type TrackId } from '../ssd';
 import { TURN_STEPS, nextStep, previousStep, type GameState, type ShipId, type ShipSetup, type ShipState, type TurnOrders, type TurnStep } from './types';
 
 export type GameEvent =
@@ -39,6 +40,14 @@ export type GameEvent =
       readonly top?: AvidWindow;
     }
   | { readonly type: 'BoxReported'; readonly shipId: ShipId; readonly trackId: TrackId; readonly index: number; readonly status: BoxStatus }
+  | {
+      /** A whole damage state produced by the combat engine (a resolved salvo, beams or damage control). */
+      readonly type: 'ShipDamageSet';
+      readonly shipId: ShipId;
+      readonly damage: ShipDamage;
+      readonly note: string;
+    }
+  | { readonly type: 'GradeChanged'; readonly shipId: ShipId; readonly officer: OfficerType; readonly grade: Grade }
   | { readonly type: 'MagazineReported'; readonly shipId: ShipId; readonly mount: Mount; readonly remaining: number }
   | { readonly type: 'ShipDestroyed'; readonly shipId: ShipId; readonly destroyed: boolean }
   | { readonly type: 'NoteAdded'; readonly text: string };
@@ -95,14 +104,18 @@ function endTurn(g: GameState): GameState {
       s.grades.ENG,
     );
     const attitude = orders ? applyManeuver(s.attitude, orders.maneuver, 1) : s.attitude;
+    // jury-rigged repairs made ten turns ago fail as the new turn begins (C6.13)
+    const expired = expireRepairs(s.damage, g.turn + 1);
     out = withShip(out, id, (ship) => ({
       ...ship,
       position: motion.endOfTurn,
       velocity: motion.newVelocity,
       halfDisplacements: motion.carriedHalves,
       attitude,
+      damage: expired.damage,
       orders: null,
     }));
+    if (expired.failed.length) out = log(out, `${s.name}: ${expired.failed.length} jury-rigged repair${expired.failed.length === 1 ? '' : 's'} failed`);
   }
   out = log(out, `Turn ${g.turn} ended`);
   return { ...out, turn: g.turn + 1, step: 'markers' };
@@ -154,6 +167,16 @@ export function reduce(g: GameState, e: GameEvent): GameState {
         const boxes = track.boxes.map((b, i) => (i === e.index ? { ...b, status: e.status } : b));
         return { ...s, damage: { ...s.damage, tracks: { ...s.damage.tracks, [e.trackId]: { boxes } } } };
       });
+    case 'ShipDamageSet':
+      return log(
+        withShip(g, e.shipId, (s) => ({ ...s, damage: e.damage })),
+        `${g.ships[e.shipId]?.name ?? e.shipId}: ${e.note}`,
+      );
+    case 'GradeChanged':
+      return log(
+        withShip(g, e.shipId, (s) => ({ ...s, grades: { ...s.grades, [e.officer]: e.grade } })),
+        `${g.ships[e.shipId]?.name ?? e.shipId}: ${e.officer} now ${e.grade}`,
+      );
     case 'MagazineReported':
       return withShip(g, e.shipId, (s) => ({ ...s, damage: { ...s.damage, magazines: { ...s.damage.magazines, [e.mount]: e.remaining } } }));
     case 'ShipDestroyed':

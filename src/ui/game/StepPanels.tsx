@@ -7,6 +7,7 @@ import { MOUNTS, formatVelocity, windowLabel, type ArcColour, type Mount } from 
 import { attitudeAt, engagements, markersAt, shipMotion, shipsOf, shipClassOf, type GameEvent, type GameState, type ShipState } from '../../domain/game';
 import { MARKER_NAMES } from '../../domain/geometry';
 import { AvidFlat } from '../avid/AvidFlat';
+import { BeamResolver, DamageControlPanel, ImpactResolver } from './CombatPanels';
 import { fmtPos } from './HexMap';
 import { OrdersPanel } from './OrdersPanel';
 
@@ -130,7 +131,7 @@ export function LaunchStep({ game }: { game: GameState }) {
   );
 }
 
-export function ImpactStep({ game, timing }: { game: GameState; timing: 'early' | 'middle' | 'late' }) {
+export function ImpactStep({ game, timing, dispatch }: { game: GameState; timing: 'early' | 'middle' | 'late'; dispatch: (e: GameEvent) => void }) {
   const es = engagements(game).filter((e) => e.salvoes.find((s) => s.timing === timing)?.available);
   const beams = timing !== 'early';
   const fraction = timing === 'middle' ? 0.5 : 1;
@@ -149,8 +150,10 @@ export function ImpactStep({ game, timing }: { game: GameState; timing: 'early' 
           })}
         </ul>
       )}
+      {es.length > 0 && <ImpactResolver game={game} timing={timing} dispatch={dispatch} />}
       {beams && <BeamNotes game={game} fraction={fraction} />}
-      <p className="note">Use the ship panel to tap destroyed boxes. Phase 5 adds the tables and the odds.</p>
+      {beams && <BeamResolver game={game} fraction={fraction} dispatch={dispatch} />}
+      <p className="note">Rolled at the table instead? Tap the destroyed boxes in the ship panel.</p>
     </section>
   );
 }
@@ -261,11 +264,12 @@ export function MoveStep({ game, fraction }: { game: GameState; fraction: 0.5 | 
   );
 }
 
-export function EndOfTurnStep({ game }: { game: GameState }) {
+export function EndOfTurnStep({ game, dispatch }: { game: GameState; dispatch: (e: GameEvent) => void }) {
   return (
     <section className="panel">
       <h2>End of turn</h2>
       <p className="note">Add the thrust to the vectors and consolidate; assign damage-control parties; deploy pods or take other actions. Then press End turn.</p>
+      <DamageControlPanel game={game} dispatch={dispatch} />
       <table className="games-table">
         <thead>
           <tr>

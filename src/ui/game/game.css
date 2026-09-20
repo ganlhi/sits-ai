@@ -328,3 +328,45 @@ ul.log {
   padding-left: 18px;
   font-size: 0.85rem;
 }
+
+/* combat resolvers */
+.resolver {
+  border-top: 1px solid var(--line);
+  margin-top: 12px;
+  padding-top: 8px;
+}
+
+.resolver h3 {
+  margin: 0 0 6px;
+  font-size: 0.9rem;
+}
+
+.resolver select {
+  font: inherit;
+  padding: 5px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  max-width: 100%;
+}
+
+ul.effects {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 0.85rem;
+  max-height: 260px;
+  overflow: auto;
+}
+
+ul.effects li.effect-destroyed,
+ul.effects li.effect-explosion-check {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+ul.effects li.effect-skip,
+ul.effects li.effect-lost,
+ul.effects li.effect-deflected {
+  color: var(--muted);
+}

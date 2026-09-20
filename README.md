@@ -17,6 +17,8 @@ src/domain/          pure TypeScript, no DOM / React / storage imports — the r
                      damage state, validation
   game/              Phase 4: game state as a fold over events, the nine-step turn machine,
                      derived facts (markers, launch geometry, arcs)
+  combat/            Phase 5: dice and distributions, the Missile Defense Card, missile defense,
+                     damage allocation, beams, damage control, the expectation layer
 src/data/ships/      ship classes; sampleSd.ts is the core book's Sample-class SD, the fixture
 src/storage/         persistence: ship library (localStorage), game event logs (IndexedDB/Dexie)
 src/ui/              React components (AvidFlat, AvidSphere, SsdSheet, SsdEditor, game screens …)
@@ -56,7 +58,17 @@ npm run build
 | 2 — geometry kernel + dual-view AVID inspector | done |
 | 3 — SSD schema, Sample-class fixture, editor | done |
 | 4 — playable notebook PWA (no AI) | done — needs its table test (≤ 90 s of entry per turn) |
-| 5 — combat resolution engine | next |
+| 5 — combat resolution engine (resolve + expect) | done |
+| 6 — AI opponent v1 | next |
+
+## Combat at the table
+
+The impact steps offer to resolve a salvo or a beam impact with the app's dice: it pre-fills
+missiles, MQL (range band + fire control + TAC grade), the target's ECM, countermissile and
+point-defense probable kills, decoys and wedge from the game state, shows the expected result,
+rolls, lists every effect (penetration, hit location, boxes, cascades, explosion checks) and
+applies it to the target's sheet in one tap. End of turn has damage control. Prefer real dice?
+Tap the destroyed boxes on the sheet instead — both paths are just events.
 
 ## Playing with the notebook
 

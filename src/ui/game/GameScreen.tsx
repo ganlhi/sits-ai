@@ -26,17 +26,17 @@ export function GameScreen({ gameId, onBack }: { gameId: string; onBack: () => v
       case 'launch':
         return <LaunchStep game={game} />;
       case 'earlyImpact':
-        return <ImpactStep game={game} timing="early" />;
+        return <ImpactStep game={game} timing="early" dispatch={dispatch} />;
       case 'moveMidpoint':
         return <MoveStep game={game} fraction={0.5} />;
       case 'middleImpact':
-        return <ImpactStep game={game} timing="middle" />;
+        return <ImpactStep game={game} timing="middle" dispatch={dispatch} />;
       case 'moveEot':
         return <MoveStep game={game} fraction={1} />;
       case 'lateImpact':
-        return <ImpactStep game={game} timing="late" />;
+        return <ImpactStep game={game} timing="late" dispatch={dispatch} />;
       case 'endOfTurn':
-        return <EndOfTurnStep game={game} />;
+        return <EndOfTurnStep game={game} dispatch={dispatch} />;
     }
   };
 
