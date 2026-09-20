@@ -100,6 +100,36 @@ last one, and a game exports as its event log.
 
 Installable and offline: `npm run build` then serve `dist/` (or `npm run preview`).
 
+## Publishing on GitHub Pages
+
+The repository ships a workflow ([.github/workflows/pages.yml](.github/workflows/pages.yml))
+that tests, builds and deploys the app on every push to `main`. To turn it on:
+
+1. Push this repository to GitHub (the folder is already a git repo with `main` as its branch):
+   ```
+   git remote add origin https://github.com/<owner>/<repo>.git
+   git push -u origin main
+   ```
+2. On GitHub: **Settings → Pages → Build and deployment → Source: “GitHub Actions”**.
+3. Push (or run the workflow from the **Actions** tab). The app appears at
+   `https://<owner>.github.io/<repo>/`. On a phone, open that address and *Add to Home Screen*;
+   it then works offline and updates itself on the next visit after each deploy.
+
+The base path is derived from the repository name (`BASE_PATH=/<repo>/`), so the workflow
+needs no editing if you rename the repository. For a user/organisation site
+(`<owner>.github.io` as the repository name) set `BASE_PATH: /` in the workflow instead.
+
+Nothing on the page talks to a server: games and ship classes stay in the visiting browser's
+IndexedDB and localStorage. Export a game or class to JSON before clearing site data or
+switching devices.
+
+## Ship classes
+
+Built in: the core book's **Sample-class SD** and three Ship Book cards from the folder above
+— **Sultan-class BC** (People's Navy, SB1), **Warrior-class CA** and **Havoc-class DD** (RMN,
+SB3) — transcribed from the vector PDFs in `src/data/ships/`. The Ship Book 2 and 3 PDFs in
+that folder hold the rest of the fleets and can be added the same way (or through the editor).
+
 ## Entering a ship class
 
 Ship classes are typed in from the physical SSD in the **Ship classes** screen, using text
