@@ -4,8 +4,7 @@
  * at End of Turn, and the salvo card entries for each launch.
  */
 import { applyManeuver, bearing, facingAfter, formatVelocity, impactWindow, markers, pivotCost, velocityIsZero, windowLabel, type Markers, type Position } from '../geometry';
-import { formatPosition, shipById, shipClassOf, shipMotion, type Game, type Ship } from '../game';
-import { rangeBandFor, type SalvoTiming } from '../ssd';
+import { BAND_LABELS, MOUNT_NAMES, bandFor, formatPosition, shipById, shipMotion, type Game, type SalvoTiming, type Ship } from '../game';
 import { driftMotion } from './evaluate';
 
 export interface SalvoLine {
@@ -15,12 +14,12 @@ export interface SalvoLine {
   readonly bearing: string;
   /** The Impact Window written on the salvo card: the reciprocal of the bearing. */
   readonly impact: string;
-  readonly baseMql: number | null;
+  /** The launching ship's band at that range, for the MQL row of its own card. */
+  readonly band: string;
 }
 
 export interface LaunchSheet {
   readonly mountName: string;
-  readonly missiles: number;
   readonly targetName: string;
   readonly salvoes: readonly SalvoLine[];
 }
@@ -38,12 +37,11 @@ export interface OrderSheet {
   readonly rationale: string;
 }
 
-const TIMING_LABEL: Readonly<Record<SalvoTiming, string>> = { early: 'Early', middle: 'Middle', late: 'Late' };
+export const TIMING_LABEL: Readonly<Record<SalvoTiming, string>> = { early: 'Early', middle: 'Middle', late: 'Late' };
 
 export function orderSheet(game: Game, ship: Ship): OrderSheet | null {
   const orders = ship.orders;
   if (!orders) return null;
-  const cls = shipClassOf(ship);
   const m0 = markers(ship.attitude);
   const maneuver: string[] = [];
   if (orders.maneuver.pivotTo) {
@@ -60,16 +58,17 @@ export function orderSheet(game: Game, ship: Ship): OrderSheet | null {
   const motion = shipMotion(ship);
   const launches: LaunchSheet[] = orders.launches.map((l) => {
     const target = shipById(game, l.targetId);
-    if (!target) return { mountName: cls.mounts[l.mount].name, missiles: l.missiles, targetName: l.targetId, salvoes: [] };
+    if (!target) return { mountName: MOUNT_NAMES[l.mount], targetName: l.targetId, salvoes: [] };
     const tm = driftMotion(target);
     const geometry = (timing: SalvoTiming, from: Position, to: Position): SalvoLine => {
       const b = bearing(from, to);
+      const band = bandFor(ship.shipClass, b.range);
       return {
         timing,
         range: b.range,
         bearing: b.window ? windowLabel(b.window) : '—',
         impact: b.window ? windowLabel(impactWindow(b)!) : '—',
-        baseMql: rangeBandFor(cls, b.range)?.baseMql ?? null,
+        band: band ? BAND_LABELS[band] : 'out of range',
       };
     };
     const all: Record<SalvoTiming, SalvoLine> = {
@@ -77,7 +76,7 @@ export function orderSheet(game: Game, ship: Ship): OrderSheet | null {
       middle: geometry('middle', ship.position, tm.midpoint),
       late: geometry('late', motion.midpoint, tm.endOfTurn),
     };
-    return { mountName: cls.mounts[l.mount].name, missiles: l.missiles, targetName: target.name, salvoes: l.timings.map((t) => all[t]) };
+    return { mountName: MOUNT_NAMES[l.mount], targetName: target.name, salvoes: l.timings.map((t) => all[t]) };
   });
 
   return {
@@ -99,12 +98,10 @@ export function orderSheetText(sheet: OrderSheet, shipName: string): string {
   lines.push(`At the Midpoint: Forward ${windowLabel(sheet.attitudeAtMidpoint.forward)}, Top ${windowLabel(sheet.attitudeAtMidpoint.top)}.`);
   lines.push(`At End of Turn: Forward ${windowLabel(sheet.attitudeAtEot.forward)}, Top ${windowLabel(sheet.attitudeAtEot.top)}.`);
   for (const l of sheet.launches) {
-    lines.push(`Launch from the ${l.mountName}: ${l.missiles} missiles at ${l.targetName}, ${l.salvoes.map((s) => TIMING_LABEL[s.timing]).join(' + ')}.`);
-    for (const s of l.salvoes) lines.push(`  ${TIMING_LABEL[s.timing]}: range ${s.range}, bearing ${s.bearing}, impact window ${s.impact}${s.baseMql !== null ? `, base MQL ${s.baseMql}` : ''}.`);
+    lines.push(`Launch from the ${l.mountName}, every tube, at ${l.targetName}: ${l.salvoes.map((s) => TIMING_LABEL[s.timing]).join(' + ')}.`);
+    for (const s of l.salvoes) lines.push(`  ${TIMING_LABEL[s.timing]}: range ${s.range}, bearing ${s.bearing}, impact window ${s.impact}, ${s.band} band.`);
   }
   if (!sheet.launches.length) lines.push('No missile launch.');
   lines.push(sheet.rationale);
   return lines.join('\n');
 }
-
-export { TIMING_LABEL };

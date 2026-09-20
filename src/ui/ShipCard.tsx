@@ -14,12 +14,12 @@ import {
   isOutOfAction,
   removeShip,
   reportShip,
-  shipClassOf,
   type Bda,
   type Controller,
   type Doctrine,
   type Effectiveness,
   type Game,
+  type Ratings,
   type Ship,
 } from '../domain/game';
 import { AttitudeInput } from './AttitudeInput';
@@ -40,6 +40,21 @@ function draftToEff(d: EffDraft): Effectiveness | null {
 }
 const effEquals = (a: Effectiveness, b: Effectiveness): boolean => MOUNTS.every((m) => a[m] === b[m]);
 
+const RATING_KEYS = ['thrust', 'pivot', 'roll'] as const;
+type RatingsDraft = Readonly<Record<(typeof RATING_KEYS)[number], string>>;
+const ratingsToDraft = (r: Ratings): RatingsDraft => ({ thrust: String(r.thrust), pivot: String(r.pivot), roll: String(r.roll) });
+function draftToRatings(d: RatingsDraft): Ratings | null {
+  const out: Partial<Record<(typeof RATING_KEYS)[number], number>> = {};
+  for (const k of RATING_KEYS) {
+    const t = d[k].trim();
+    const n = t === '' ? 0 : Number(t);
+    if (!Number.isInteger(n) || n < 0) return null;
+    out[k] = n;
+  }
+  return out as Ratings;
+}
+const ratingsEqual = (a: Ratings, b: Ratings): boolean => RATING_KEYS.every((k) => a[k] === b[k]);
+
 export interface ShipCardProps {
   readonly game: Game;
   readonly ship: Ship;
@@ -47,23 +62,26 @@ export interface ShipCardProps {
 }
 
 export function ShipCard({ ship, update }: ShipCardProps) {
-  const cls = shipClassOf(ship);
+  const cls = ship.shipClass;
   const report = (patch: Parameters<typeof reportShip>[2]) => update((g) => reportShip(g, ship.id, patch));
 
   const [pos, setPos] = useDraft<Position, OffsetDraft>(ship.position, draftFromPosition, draftToPosition, positionEquals);
   const [vel, setVel] = useDraft(ship.velocity, velocityToDraft, draftToVelocity, velocityEquals);
   const [eff, setEff] = useDraft(ship.effectiveness, effToDraft, draftToEff, effEquals);
+  const [rat, setRat] = useDraft(ship.ratings, ratingsToDraft, draftToRatings, ratingsEqual);
 
   const posValid = draftToPosition(pos) !== null;
   const velValid = draftToVelocity(vel) !== null;
   const effValid = draftToEff(eff) !== null;
+  const ratValid = draftToRatings(rat) !== null;
+  const maxOf: Record<(typeof RATING_KEYS)[number], number> = { thrust: cls.maxThrust, pivot: cls.maxPivot, roll: cls.maxRoll };
 
   return (
     <article className={`ship-card side-${ship.side}${isOutOfAction(ship) ? ' out' : ''}`}>
       <header>
         <h3>{ship.name}</h3>
         <span className="note">
-          {cls.className} {cls.hullType}
+          {cls.name} · cost {cls.baseCost}
         </span>
         <span className="tag">{ship.side}</span>
         <div className="seg" role="group" aria-label="controller">
@@ -133,26 +151,52 @@ export function ShipCard({ ship, update }: ShipCardProps) {
               ))}
             </select>
           </div>
-          <div className="label note">Combat effectiveness per facing (%)</div>
-          <div className="row">
-            {MOUNTS.map((m) => (
-              <label key={m} className="vec-input pct">
-                {MOUNT_SHORT[m]}
-                <input
-                  value={eff[m]}
-                  inputMode="numeric"
-                  aria-label={`${m} effectiveness`}
-                  onChange={(e) => {
-                    const d = { ...eff, [m]: e.target.value };
-                    setEff(d);
-                    const parsed = draftToEff(d);
-                    if (parsed && !effEquals(parsed, ship.effectiveness)) report({ effectiveness: parsed });
-                  }}
-                />
-              </label>
-            ))}
+          <div className="row" style={{ alignItems: 'flex-start' }}>
+            <div>
+              <div className="label note">Ratings this turn</div>
+              <div className="row">
+                {RATING_KEYS.map((k) => (
+                  <label key={k} className="vec-input pct" title={`class maximum ${maxOf[k]}`}>
+                    {k}
+                    <input
+                      value={rat[k]}
+                      inputMode="numeric"
+                      aria-label={`${k} rating`}
+                      onChange={(e) => {
+                        const d = { ...rat, [k]: e.target.value };
+                        setRat(d);
+                        const parsed = draftToRatings(d);
+                        if (parsed && !ratingsEqual(parsed, ship.ratings)) report({ ratings: parsed });
+                      }}
+                    />
+                  </label>
+                ))}
+              </div>
+              {!ratValid && <span className="field-msg">whole numbers, 0 or more</span>}
+            </div>
+            <div>
+              <div className="label note">Effectiveness per facing (%)</div>
+              <div className="row">
+                {MOUNTS.map((m) => (
+                  <label key={m} className="vec-input pct">
+                    {MOUNT_SHORT[m]}
+                    <input
+                      value={eff[m]}
+                      inputMode="numeric"
+                      aria-label={`${m} effectiveness`}
+                      onChange={(e) => {
+                        const d = { ...eff, [m]: e.target.value };
+                        setEff(d);
+                        const parsed = draftToEff(d);
+                        if (parsed && !effEquals(parsed, ship.effectiveness)) report({ effectiveness: parsed });
+                      }}
+                    />
+                  </label>
+                ))}
+              </div>
+              {!effValid && <span className="field-msg">0 to 100</span>}
+            </div>
           </div>
-          {!effValid && <span className="field-msg">0 to 100</span>}
         </div>
       </div>
     </article>

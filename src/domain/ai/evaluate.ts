@@ -1,17 +1,17 @@
 /**
- * Scoring a candidate plot: damage we expect to deal minus damage we expect to take, plus
- * positional terms. The enemy's orders are unknown at plotting (it plots simultaneously), so
- * every enemy is assumed to drift on its vectors and hold its attitude.
+ * Scoring a candidate plot: the fraction of the enemy we expect to destroy minus the fraction
+ * of ourselves we expect to lose, plus positional terms. The enemy's orders are unknown at
+ * plotting (it plots simultaneously), so every enemy is assumed to drift on its vectors and
+ * hold its attitude.
  *
  * The damage model is deliberately coarse — the real resolution happens on the table — but it
- * keeps the shape of the rules:
- *   - salvoes by EoT-to-EoT range band, bearings by salvo timing (RULES.md §3 step 3, §11);
- *   - the ECM layer as a survival fraction by final column, the wedge as its +12 shift with no
- *     countermissiles and half point defense (§12.2–12.3);
- *   - beams hit automatically in arc and range, never through the wedge, at half range into an
- *     unwalled bow or stern (§14.3);
- *   - the facing that takes the hit is the reported effectiveness of that facing: it fires
- *     fewer tubes, kills fewer missiles, and is worth more to hit.
+ * keeps the shape of the rules and of the report:
+ *   - salvoes by End-of-Turn range band, bearings by salvo timing (RULES.md §3 step 3, §11);
+ *   - what gets through falls with the band and with the target facing's effectiveness (its
+ *     countermissiles and point defense), and is cut hard by the wedge (§12);
+ *   - a weak facing is worth more to hit, and a weak facing of ours is worth more to hide;
+ *   - beams hit automatically in arc within three hexes, never through the wedge, harder into
+ *     an unwalled bow or stern (§14.3).
  */
 import {
   MOUNTS,
@@ -23,9 +23,9 @@ import {
   markerDirection,
   mountArcColour,
   planMotion,
+  positionPlus,
   wedgeCovers,
   windowDirection,
-  type ArcDiagram,
   type Attitude,
   type Bearing,
   type Maneuver,
@@ -34,9 +34,8 @@ import {
   type Vec3,
   type Velocity,
 } from '../geometry';
-import { bdaIndex, beamBatteries, beamDamageAtRange, ecmRating, enemiesOf, missileBattery, pointDefense, shipClassOf, type Game, type Launch, type Ship } from '../game';
-import { rangeBandFor, type SalvoTiming, type ShipClass } from '../ssd';
-import type { DoctrineWeights } from './doctrine';
+import { BAND_QUALITY, BAND_SALVOES, BEAM_REACH, STANDARD_ARCS, bandFor, beamPower, enemiesOf, facingFactor, power, salvoPower, type BandName, type Game, type Launch, type SalvoTiming, type Ship } from '../game';
+import { effectiveWeights, goalRange, postureFor, type Posture, type Weights } from './doctrine';
 
 export interface Candidate {
   readonly maneuver: Maneuver;
@@ -45,7 +44,9 @@ export interface Candidate {
 }
 
 export interface Breakdown {
+  /** Fraction of the enemy fleet's cost expected destroyed. */
   readonly dealt: number;
+  /** Fraction of our own cost expected destroyed. */
   readonly received: number;
   readonly range: number;
   readonly positional: number;
@@ -67,24 +68,15 @@ export interface Evaluation {
 /** An enemy as the planner assumes it: drifting, attitude held. */
 interface Foe {
   readonly ship: Ship;
-  readonly cls: ShipClass;
   readonly motion: TurnMotion;
 }
 
-/** Mean of "2d10−" (two dice, take the lower). */
-const MEAN_2D10_LOW = 3.5;
-/** The wedge's column shift in the ECM layer (C4.12). */
-const WEDGE_ECM = 12;
-/** Damage terms are scored in tens of points so the doctrine weights stay readable. */
-const DAMAGE_SCALE = 0.1;
-
-/**
- * Fraction of a salvo that survives the ECM layer at a final column: a straight line through
- * the 100-missile row of the table (1 kill at column 1, 85 at column 25).
- */
-export function ecmSurvival(column: number): number {
-  return Math.max(0, Math.min(1, 1 - 0.035 * (column - 1)));
-}
+/** What is left of a salvo after the wedge takes it: no countermissiles, but a +12 ECM shift. */
+const WEDGE_FACTOR = 0.35;
+/** How much of a salvo a fully effective facing's active defenses remove. */
+const DEFENSE_FACTOR = 0.4;
+/** Beams into an unwalled bow or stern count the range halved (C3.12). */
+const HAMMERHEAD_BEAM_BONUS = 1.3;
 
 /** The facing a hit arriving from `dir` lands on: the nearest of the four side markers (C5.11). */
 export function impactFacing(a: Attitude, dir: Vec3): Mount {
@@ -100,78 +92,56 @@ export function impactFacing(a: Attitude, dir: Vec3): Mount {
   return best;
 }
 
-/** A facing at 40% is worth more to hit than one at 100%: weaker sidewall, fewer defenses. */
-const vulnerability = (percent: number): number => 1 + (1 - Math.max(0, Math.min(100, percent)) / 100) * 0.5;
-
-export const arcsOf = (cls: ShipClass): Readonly<Record<Mount, ArcDiagram>> => ({
-  forward: cls.mounts.forward.arc,
-  aft: cls.mounts.aft.arc,
-  port: cls.mounts.port.arc,
-  starboard: cls.mounts.starboard.arc,
-});
+/** A facing at 40 % is worth more to hit than one at 100 %: weaker sidewall, fewer defenses, nearer the core. */
+export const vulnerability = (target: Ship, facing: Mount): number => 2 - facingFactor(target, facing);
 
 /** Drift for one turn: no thrust, no maneuver. */
 export const driftMotion = (s: Ship): TurnMotion => planMotion({ position: s.position, velocity: s.velocity, halfDisplacements: s.halfDisplacements }, ZERO_VELOCITY, false);
 
-interface Combatant {
-  readonly ship: Ship;
-  readonly cls: ShipClass;
-}
-
-/**
- * Expected damage of one salvo from `shooter`'s mount at `target`, arriving from `impactDir`
- * while the target holds `targetAttitude`, launched at `range`.
- */
-export function salvoDamage(shooter: Combatant, mount: Mount, target: Combatant, targetAttitude: Attitude, impactDir: Vec3, range: number): number {
-  const battery = missileBattery(shooter.cls, mount, shooter.ship.effectiveness);
-  if (!battery) return 0;
-  const band = rangeBandFor(shooter.cls, range);
-  if (!band) return 0;
+/** Expected damage (cost units) of one salvo from `shooter`'s mount at `target` holding `targetAttitude`, arriving from `impactDir`. */
+export function salvoDamage(shooter: Ship, mount: Mount, band: BandName, target: Ship, targetAttitude: Attitude, impactDir: Vec3): number {
+  const fp = salvoPower(shooter, mount);
+  if (fp <= 0) return 0;
   const wedge = wedgeCovers(targetAttitude, impactDir);
   const facing = impactFacing(targetAttitude, impactDir);
-  const column = band.baseMql + (wedge ? WEDGE_ECM : ecmRating(target.cls, target.ship.bda)) + MEAN_2D10_LOW;
-  const defense = pointDefense(target.cls, facing, target.ship.effectiveness);
-  const through = battery.tubes * ecmSurvival(column) - (wedge ? 0 : defense.cm) - defense.pd * (wedge ? 0.5 : 1);
-  return Math.max(0, through) * battery.damage * vulnerability(target.ship.effectiveness[facing]);
+  const through = wedge ? WEDGE_FACTOR : 1 - DEFENSE_FACTOR * facingFactor(target, facing);
+  return fp * BAND_QUALITY[band] * through * vulnerability(target, facing);
 }
 
-/** Expected damage of `shooter`'s beams at `target` for one beam impact, positions and attitudes given. */
-export function beamDamage(shooter: Combatant, shooterAttitude: Attitude, target: Combatant, targetAttitude: Attitude, b: Bearing): number {
-  if (!b.window) return 0;
+/** Expected damage (cost units) of `shooter`'s beams at `target` for one beam impact. */
+export function beamDamage(shooter: Ship, shooterAttitude: Attitude, target: Ship, targetAttitude: Attitude, b: Bearing): number {
+  if (!b.window || b.range > BEAM_REACH) return 0;
   const dir = windowDirection(b.window);
   const impactDir = windowDirection(impactWindow(b)!);
   if (wedgeCovers(targetAttitude, impactDir)) return 0;
   const facing = impactFacing(targetAttitude, impactDir);
-  const sidewall = facing === 'port' || facing === 'starboard';
-  const range = sidewall ? b.range : Math.floor(b.range / 2);
-  const arcs = arcsOf(shooter.cls);
+  const aspect = facing === 'port' || facing === 'starboard' ? 1 : HAMMERHEAD_BEAM_BONUS;
   let total = 0;
-  for (const m of MOUNTS) {
-    if (mountArcColour(arcs, m, shooterAttitude, dir) === 'black') continue;
-    for (const beam of beamBatteries(shooter.cls, m, shooter.ship.effectiveness)) {
-      const dmg = beamDamageAtRange(beam.damage, range);
-      if (dmg !== null) total += beam.count * dmg;
-    }
-  }
-  return total * vulnerability(target.ship.effectiveness[facing]);
+  for (const m of MOUNTS) if (mountArcColour(STANDARD_ARCS, m, shooterAttitude, dir) !== 'black') total += beamPower(shooter, m, b.range);
+  return total * aspect * vulnerability(target, facing);
 }
 
 /** One planning session for one ship. */
 export class Evaluator {
-  private readonly me: Combatant;
+  readonly posture: Posture;
+  readonly weights: Weights;
+  readonly goal: number | null;
   private readonly foes: Foe[];
-  private readonly arcs: Readonly<Record<Mount, ArcDiagram>>;
+  private readonly enemyPower: number;
+  private readonly myPower: number;
 
   constructor(
     readonly game: Game,
     readonly ship: Ship,
-    readonly weights: DoctrineWeights,
     private readonly noiseSource: () => number,
   ) {
-    const cls = shipClassOf(ship);
-    this.me = { ship, cls };
-    this.arcs = arcsOf(cls);
-    this.foes = enemiesOf(game, ship).map((s) => ({ ship: s, cls: shipClassOf(s), motion: driftMotion(s) }));
+    const enemies = enemiesOf(game, ship);
+    this.foes = enemies.map((s) => ({ ship: s, motion: driftMotion(s) }));
+    this.posture = postureFor(ship, enemies);
+    this.weights = effectiveWeights(ship.doctrine, this.posture);
+    this.goal = goalRange(this.weights.rangeGoal, ship, enemies);
+    this.enemyPower = Math.max(0.05, enemies.reduce((s, e) => s + power(e), 0));
+    this.myPower = power(ship);
   }
 
   get hasFoes(): boolean {
@@ -191,92 +161,90 @@ export class Evaluator {
     let positional = 0;
     let wedgedSalvoes = 0;
     let nearest: number | null = null;
+    let nearestNext: number | null = null;
     const launches: Launch[] = [];
+    // where this turn's vectors carry us if nobody thrusts next turn: what the thrust choice is really about
+    const nextMe = positionPlus(motion.endOfTurn, motion.newVelocity);
 
     for (const foe of this.foes) {
       const eotB = bearing(motion.endOfTurn, foe.motion.endOfTurn);
       const eotRange = eotB.range;
       nearest = nearest === null ? eotRange : Math.min(nearest, eotRange);
-      const priority = 1 + 0.15 * bdaIndex(foe.ship.bda);
-      const foeCombatant: Combatant = { ship: foe.ship, cls: foe.cls };
+      const nextRange = bearing(nextMe, positionPlus(foe.motion.endOfTurn, foe.motion.newVelocity)).range;
+      nearestNext = nearestNext === null ? nextRange : Math.min(nearestNext, nextRange);
 
       // --- my missiles: launched at step 3 with my current attitude, salvoes by EoT range
-      const band = rangeBandFor(this.me.cls, eotRange);
+      const band = bandFor(me.shipClass, eotRange);
       if (band) {
         const geometry: Record<SalvoTiming, Bearing> = {
           early: bearing(me.position, foe.ship.position),
           middle: bearing(me.position, foe.motion.midpoint),
           late: bearing(motion.midpoint, foe.motion.endOfTurn),
         };
-        const perMount = new Map<Mount, { timings: SalvoTiming[]; damage: number; missiles: number }>();
-        for (const t of band.salvoes) {
+        const perMount = new Map<Mount, SalvoTiming[]>();
+        for (const t of BAND_SALVOES[band]) {
           const g = geometry[t];
           if (!g.window) continue;
           const impactDir = windowDirection(impactWindow(g)!);
           for (const m of MOUNTS) {
-            const battery = missileBattery(this.me.cls, m, me.effectiveness);
-            if (!battery) continue;
-            if (mountArcColour(this.arcs, m, me.attitude, windowDirection(g.window)) === 'black') continue;
-            const dmg = salvoDamage(this.me, m, foeCombatant, foe.ship.attitude, impactDir, g.range);
+            if (facingFactor(me, m) <= 0) continue;
+            if (mountArcColour(STANDARD_ARCS, m, me.attitude, windowDirection(g.window)) === 'black') continue;
+            const dmg = salvoDamage(me, m, band, foe.ship, foe.ship.attitude, impactDir);
             if (dmg <= 0) continue;
-            const entry = perMount.get(m) ?? { timings: [], damage: 0, missiles: battery.tubes };
-            entry.timings.push(t);
-            entry.damage += dmg;
-            perMount.set(m, entry);
+            dealt += dmg;
+            perMount.set(m, [...(perMount.get(m) ?? []), t]);
           }
         }
-        for (const [m, e] of perMount) {
-          dealt += e.damage * priority;
-          launches.push({ mount: m, targetId: foe.ship.id, timings: e.timings, missiles: e.missiles });
-        }
+        for (const [m, timings] of perMount) launches.push({ mount: m, targetId: foe.ship.id, timings });
       }
 
       // --- my beams at the two beam impacts: Midpoint (half maneuver) and End of Turn
-      dealt += beamDamage(this.me, attMid, foeCombatant, foe.ship.attitude, bearing(motion.midpoint, foe.motion.midpoint)) * priority;
-      dealt += beamDamage(this.me, attEot, foeCombatant, foe.ship.attitude, eotB) * priority;
+      dealt += beamDamage(me, attMid, foe.ship, foe.ship.attitude, bearing(motion.midpoint, foe.motion.midpoint));
+      dealt += beamDamage(me, attEot, foe.ship, foe.ship.attitude, eotB);
 
       // --- the enemy's missiles at me, with my attitude at each impact time
-      const foeBand = rangeBandFor(foe.cls, eotRange);
+      const foeBand = bandFor(foe.ship.shipClass, eotRange);
       if (foeBand) {
         const geometry: Record<SalvoTiming, Bearing> = {
           early: bearing(foe.ship.position, me.position),
           middle: bearing(foe.ship.position, motion.midpoint),
           late: bearing(foe.motion.midpoint, motion.endOfTurn),
         };
-        const foeArcs = arcsOf(foe.cls);
-        for (const t of foeBand.salvoes) {
+        for (const t of BAND_SALVOES[foeBand]) {
           const g = geometry[t];
           if (!g.window) continue;
           const impactDir = windowDirection(impactWindow(g)!);
-          let anyBattery = false;
+          let incoming = false;
           for (const m of MOUNTS) {
-            if (!missileBattery(foe.cls, m, foe.ship.effectiveness)) continue;
-            if (mountArcColour(foeArcs, m, foe.ship.attitude, windowDirection(g.window)) === 'black') continue;
-            anyBattery = true;
-            received += salvoDamage(foeCombatant, m, this.me, myAttitudeAt[t], impactDir, g.range);
+            if (facingFactor(foe.ship, m) <= 0) continue;
+            if (mountArcColour(STANDARD_ARCS, m, foe.ship.attitude, windowDirection(g.window)) === 'black') continue;
+            incoming = true;
+            received += salvoDamage(foe.ship, m, foeBand, me, myAttitudeAt[t], impactDir);
           }
-          if (anyBattery && wedgeCovers(myAttitudeAt[t], impactDir)) {
+          if (incoming && wedgeCovers(myAttitudeAt[t], impactDir)) {
             positional += w.wedge;
             wedgedSalvoes += 1;
           }
         }
       }
       // --- the enemy's beams at me
-      received += beamDamage(foeCombatant, foe.ship.attitude, this.me, attMid, bearing(foe.motion.midpoint, motion.midpoint));
-      received += beamDamage(foeCombatant, foe.ship.attitude, this.me, attEot, bearing(foe.motion.endOfTurn, motion.endOfTurn));
+      received += beamDamage(foe.ship, foe.ship.attitude, me, attMid, bearing(foe.motion.midpoint, motion.midpoint));
+      received += beamDamage(foe.ship, foe.ship.attitude, me, attEot, bearing(foe.motion.endOfTurn, motion.endOfTurn));
 
-      // --- still bearing next turn?
+      // --- a broadside still bearing next turn, worth what is left of it
       if (eotB.window) {
         const dir = windowDirection(eotB.window);
-        const bears = (['port', 'starboard'] as const).some((m) => missileBattery(this.me.cls, m, me.effectiveness) && mountArcColour(this.arcs, m, attEot, dir) !== 'black');
-        if (bears) positional += w.bearingNextTurn;
+        let best = 0;
+        for (const m of ['port', 'starboard'] as const) if (mountArcColour(STANDARD_ARCS, m, attEot, dir) !== 'black') best = Math.max(best, facingFactor(me, m));
+        positional += w.bearingNextTurn * best;
       }
     }
 
-    const caution = 1 + 0.35 * bdaIndex(me.bda);
-    const range = w.preferredRange !== null && nearest !== null ? -w.rangeWeight * Math.abs(nearest - w.preferredRange) : 0;
+    const dealtFrac = dealt / this.enemyPower;
+    const receivedFrac = received / this.myPower;
+    const range = this.goal !== null && nearest !== null && nearestNext !== null ? -w.rangeWeight * (Math.abs(nearest - this.goal) + Math.abs(nearestNext - this.goal)) : 0;
     const noise = (this.noiseSource() - 0.5) * 2 * w.noise;
-    const total = w.offense * dealt * DAMAGE_SCALE - w.defense * caution * received * DAMAGE_SCALE + range + positional + noise;
-    return { candidate: c, launches, breakdown: { dealt, received, range, positional, wedgedSalvoes, noise, total }, motion, eotAttitude: attEot, eotRangeToNearest: nearest };
+    const total = w.offense * dealtFrac - w.defense * receivedFrac + range + positional + noise;
+    return { candidate: c, launches, breakdown: { dealt: dealtFrac, received: receivedFrac, range, positional, wedgedSalvoes, noise, total }, motion, eotAttitude: attEot, eotRangeToNearest: nearest };
   }
 }

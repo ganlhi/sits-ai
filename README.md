@@ -20,6 +20,7 @@ Every turn is three clicks and a report.
    - **orientation**: the Forward and Top markers, in the AVID's own notation;
    - **vectors**: the eight arrows around the AVID;
    - **battle damage assessment**: undamaged, light, medium, heavy, crippled/destroyed;
+   - **ratings this turn**: thrust, pivot and roll as the SSD now gives them;
    - **combat effectiveness** of each facing (forward, aft, port, starboard), as a percentage.
 2. **Reveal AI orders.** Every AI ship gets an order sheet in the book's notation: pivot
    (windows and target window), roll, thrust (with the vector changes to write into the arrows),
@@ -32,39 +33,53 @@ Every turn is three clicks and a report.
 *Undo turn* goes back to the start of the previous turn. *Shift the whole table* slides every
 ship by the same offset when the fight drifts towards a map edge.
 
+## Ship classes
+
+A class is the handful of numbers the opponent plots with, entered in the **Ship classes** tab
+(three Ship Book cards are built in):
+
+- **base cost** — the SSD's point cost, the AI's hint at how big and dangerous the ship is;
+- **max thrust, max pivot, max roll** — the fresh ratings; each ship's card in a game has its
+  own *ratings this turn*, which you lower as damage lands;
+- **three range bands** (short, medium, long) as "from N to M hexes", read off the SSD's
+  range-band table by the salvoes available: short = Early + Middle + Late, medium = Middle +
+  Late, long = Late only. Ranges are End-of-Turn to End-of-Turn.
+
+A ship copies its class when it is added, so editing the library never changes a running game.
+
 ## How the opponent plots
 
 The AI never sees your plot: its orders depend only on the report, and it assumes every enemy
 drifts on its vectors and holds its attitude. For each of its ships it enumerates every legal
-pivot, roll and thrust within the ship's ratings and scores each with a coarse damage model:
+pivot, roll and thrust within the ship's current ratings and scores each with a coarse model:
 
-- **Ratings from the BDA.** The damage level says how far down the ship's own pivot, roll,
-  thrust and ECM tracks the damage has reached (0 %, 20 %, 45 %, 70 %, all), and the rating is
-  read off the class card at that depth. A facing's effectiveness scales its launchers, beams,
-  countermissiles and point defense, and makes it a juicier target.
-- **Missiles**: salvoes by End-of-Turn range band, bearings by salvo timing, mounts that bear
-  at launch; the ECM layer as a survival fraction, the wedge as its +12 column shift with no
-  countermissiles and half point defense.
-- **Beams**: automatic in arc and range at the Midpoint and End of Turn, never through the
-  wedge, half range into an unwalled bow or stern.
-- **Doctrine** (balanced, missile duel, close to beam range, evade) sets the weights and a
-  preferred range; heavily damaged ships weigh damage received more. A little seeded noise
-  keeps it from being predictable, but the same report always gives the same reveal.
-
-If an AI ship's real pivot, roll or thrust rating is lower than the BDA implies, cap the order
-at the real rating — the geometry is the same.
+- **Firepower from cost.** A broadside is worth the ship's cost, a hammerhead a third of it,
+  scaled by the reported effectiveness of that facing. Salvoes follow the band (three at short
+  range, one at long) and fade with it; what gets through falls with the target facing's
+  effectiveness (its countermissiles and point defense) and is cut hard by the wedge. Beams hit
+  automatically within three hexes, never through the wedge.
+- **Orientation from the facings.** A weak facing of the enemy is worth more to hit, so the AI
+  brings its strongest broadside to bear on it; a weak facing of its own is worth more to hide,
+  so it rolls it away from the incoming bearings or puts the wedge there.
+- **Posture from the odds.** Own damage against the enemy's, and own cost against theirs: a
+  fresh battlecruiser facing a hurt cruiser presses (closes, weighs damage dealt more); the
+  cruiser is cautious (holds its long band); hurt, it turns defensive (opens the range beyond
+  everyone's missile reach, weighs damage taken heavily, prizes the wedge). The order sheet's
+  rationale names the posture.
+- **Doctrine** (balanced, missile duel, close to beam range, evade) is the personality on top:
+  the *balanced* doctrine lets the posture set the range goal, the others keep their own. A
+  little seeded noise keeps it from being predictable, but the same report always gives the
+  same reveal.
 
 ## Layout
 
 ```
 src/domain/geometry/  hexes, vectors, the AVID, attitude, bearings, thrust plotting, turn motion,
                       firing arcs — the rules kernel, tested against the book's worked examples
-src/domain/ssd/       the ship class model (tracks, mounts, range bands, arcs)
-src/domain/game/      the lite game state: reports, ratings from the BDA, the turn rollover
-src/domain/ai/        doctrines, candidate generation, the evaluator, order sheets
-src/data/ships/       ship classes: the core book's Sample SD, Sultan BC, Warrior CA, Havoc DD
-src/storage/          games as JSON snapshots in localStorage
-src/ui/               React screens: games list, the game screen, ship cards, order sheets, map
+src/domain/game/      ship classes, the game state and reports, firepower from cost, the turn rollover
+src/domain/ai/        doctrines and postures, candidate generation, the evaluator, order sheets
+src/storage/          games and the class library as JSON in localStorage
+src/ui/               React screens: games list, class editor, the game screen, ship cards, order sheets
 ```
 
 The previous full-bookkeeping app (combat engine, SSD editor, AVID inspector, event-sourced
@@ -96,12 +111,5 @@ folder. Neither is needed on an ordinary local disk.
 on every push to `main`. Turn it on once with **Settings → Pages → Source: “GitHub Actions”**;
 the app appears at `https://<owner>.github.io/<repo>/`. On a phone, open it and *Add to Home
 Screen*; it works offline and updates itself after each deploy. Games stay in the visiting
-browser; export to JSON before clearing site data or switching devices.
-
-## Ship classes
-
-Built in: the core book's **Sample-class SD**, the **Sultan-class BC** (People's Navy), the
-**Warrior-class CA** and **Havoc-class DD** (RMN), transcribed from the Ship Book cards into
-`src/data/ships/`. Add a class the same way: a TypeScript file next to them, listed in
-`src/data/ships/index.ts`. The AI reads a class's range bands, mounts, weapons, arcs and the
-pivot, roll, thrust and ECM tracks; the hit location table and hull are carried but unused.
+browser; export to JSON before clearing site data or switching devices. The class library is
+also per browser; *Restore built-in classes* brings back the three Ship Book cards.

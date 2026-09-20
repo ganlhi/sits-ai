@@ -1,16 +1,15 @@
 /** The AI's order sheets for the turn, in the book's notation, with the salvo card entries. */
 import { windowLabel } from '../domain/geometry';
 import { TIMING_LABEL, orderSheet, orderSheetText } from '../domain/ai';
-import { aiShips, formatPosition, isOutOfAction, shipClassOf, type Game, type Ship } from '../domain/game';
+import { aiShips, formatPosition, isOutOfAction, type Game, type Ship } from '../domain/game';
 
 function Sheet({ game, ship }: { game: Game; ship: Ship }) {
   const sheet = orderSheet(game, ship);
-  const cls = shipClassOf(ship);
   if (!sheet) {
     return (
       <article className="order-sheet">
         <h3>
-          {ship.name} <span className="note">{cls.className}</span>
+          {ship.name} <span className="note">{ship.shipClass.name}</span>
         </h3>
         <p className="note">{isOutOfAction(ship) ? 'Out of action: no orders, drifts on its vectors.' : 'No orders.'}</p>
       </article>
@@ -23,7 +22,7 @@ function Sheet({ game, ship }: { game: Game; ship: Ship }) {
     <article className="order-sheet">
       <div className="row">
         <h3>
-          {ship.name} <span className="note">{cls.className}</span>
+          {ship.name} <span className="note">{ship.shipClass.name}</span>
         </h3>
         <span className="grow" />
         <button type="button" onClick={copy}>
@@ -53,7 +52,7 @@ function Sheet({ game, ship }: { game: Game; ship: Ship }) {
         sheet.launches.map((l, i) => (
           <div key={i} className="launch">
             <div>
-              Launch from the <b>{l.mountName}</b>: {l.missiles} missiles at <b>{l.targetName}</b>, {l.salvoes.map((s) => TIMING_LABEL[s.timing]).join(' + ')}.
+              Launch from the <b>{l.mountName}</b>, every tube, at <b>{l.targetName}</b>: {l.salvoes.map((s) => TIMING_LABEL[s.timing]).join(' + ')}.
             </div>
             <table className="list">
               <thead>
@@ -62,7 +61,7 @@ function Sheet({ game, ship }: { game: Game; ship: Ship }) {
                   <th>Range</th>
                   <th>Bearing</th>
                   <th>Impact window</th>
-                  <th>Base MQL</th>
+                  <th>Band</th>
                 </tr>
               </thead>
               <tbody>
@@ -72,12 +71,12 @@ function Sheet({ game, ship }: { game: Game; ship: Ship }) {
                     <td>{s.range}</td>
                     <td>{s.bearing}</td>
                     <td>{s.impact}</td>
-                    <td>{s.baseMql ?? '—'}</td>
+                    <td>{s.band}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            <p className="note">Bearings assume the target drifts; if it displaced or thrusts, shoot the Middle and Late bearings from the table.</p>
+            <p className="note">Bearings assume the target drifts; if it displaced or thrusts, shoot the Middle and Late bearings from the table. Read the MQL off the ship's own card at that range.</p>
           </div>
         ))
       )}

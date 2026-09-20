@@ -1,11 +1,11 @@
 /**
- * Plotting the AI ships: every legal pivot/roll/thrust within the ship's ratings (as the BDA
- * leaves them), scored by the Evaluator, the best kept. Deterministic for a game and turn, so
- * revealing twice on the same reports gives the same orders.
+ * Plotting the AI ships: every legal pivot/roll/thrust within the ship's current ratings,
+ * scored by the Evaluator, the best kept. Deterministic for a game and turn, so revealing twice
+ * on the same reports gives the same orders.
  */
 import { allThrustOptions, facingAfter, pivotOptions, windowLabel, type AvidWindow, type Maneuver } from '../geometry';
-import { isOutOfAction, maneuverRatings, shipClassOf, type Doctrine, type Game, type Orders, type Ship } from '../game';
-import { DOCTRINE_WEIGHTS } from './doctrine';
+import { isOutOfAction, type Game, type Orders, type Ship } from '../game';
+import type { Posture } from './doctrine';
 import { Evaluator, type Candidate, type Evaluation } from './evaluate';
 import { hashSeed, seededRng, type Rng } from './rng';
 
@@ -13,7 +13,7 @@ export interface AiPlan {
   readonly orders: Orders;
   readonly evaluation: Evaluation;
   readonly candidatesConsidered: number;
-  readonly doctrine: Doctrine;
+  readonly posture: Posture;
 }
 
 /** Roll options tried with every pivot: none, then up to three windows either way. */
@@ -27,9 +27,9 @@ const ROLLS: readonly (Maneuver['roll'] | undefined)[] = [
   { windows: 3, direction: 'starboard' },
 ];
 
-/** Every legal pivot/roll/thrust combination within the ratings, deduplicated and capped. */
+/** Every legal pivot/roll/thrust combination within the ship's ratings, deduplicated and capped. */
 export function generateCandidates(ship: Ship, maxCandidates = 1200, rng: Rng = seededRng(1)): Candidate[] {
-  const limits = maneuverRatings(shipClassOf(ship), ship.bda);
+  const limits = ship.ratings;
   const pivots: (AvidWindow | undefined)[] = [undefined];
   const seen = new Set<string>();
   for (let n = 1; n <= limits.pivot; n++) {
@@ -68,8 +68,7 @@ export function generateCandidates(ship: Ship, maxCandidates = 1200, rng: Rng = 
 /** Plan one ship's turn. */
 export function planOrders(game: Game, ship: Ship, seed = 1): AiPlan {
   const rng = seededRng(seed);
-  const weights = DOCTRINE_WEIGHTS[ship.doctrine];
-  const evaluator = new Evaluator(game, ship, weights, () => rng.next());
+  const evaluator = new Evaluator(game, ship, () => rng.next());
   const candidates = generateCandidates(ship, 1200, seededRng(seed + 7));
   let best: Evaluation | null = null;
   for (const c of candidates) {
@@ -82,25 +81,30 @@ export function planOrders(game: Game, ship: Ship, seed = 1): AiPlan {
     thrust: best.candidate.thrust,
     thrustUsed: best.candidate.thrustUsed,
     launches: best.launches,
-    rationale: rationaleFor(evaluator, best, ship.doctrine),
+    rationale: rationaleFor(evaluator, best),
   };
-  return { orders, evaluation: best, candidatesConsidered: candidates.length, doctrine: ship.doctrine };
+  return { orders, evaluation: best, candidatesConsidered: candidates.length, posture: evaluator.posture };
 }
 
-function rationaleFor(evaluator: Evaluator, e: Evaluation, doctrine: Doctrine): string {
+const pct = (x: number): string => `${Math.round(x * 100)} %`;
+
+function rationaleFor(evaluator: Evaluator, e: Evaluation): string {
   const b = e.breakdown;
   const c = e.candidate;
   const parts: string[] = [];
-  if (b.dealt > 0) parts.push(`expects to deal ≈${Math.round(b.dealt)} damage`);
-  if (evaluator.hasFoes) parts.push(b.received > 0 ? `take ≈${Math.round(b.received)}` : 'take none');
+  if (evaluator.hasFoes) {
+    parts.push(b.dealt > 0 ? `expects to deal ≈${pct(b.dealt)} of the enemy` : 'expects to deal nothing');
+    parts.push(b.received > 0 ? `take ≈${pct(b.received)} of itself` : 'take nothing');
+  }
   if (b.wedgedSalvoes > 0) parts.push(`shows the wedge to ${b.wedgedSalvoes} incoming salvo${b.wedgedSalvoes === 1 ? '' : 'es'}`);
-  if (e.eotRangeToNearest !== null) parts.push(`ends the turn at range ${e.eotRangeToNearest}`);
+  if (e.eotRangeToNearest !== null) parts.push(`ends the turn at range ${e.eotRangeToNearest}${evaluator.goal !== null ? ` (wants ${evaluator.goal})` : ''}`);
   if (c.maneuver.pivotTo && c.thrustUsed > 0) parts.push('pivots and thrusts, forfeiting displacement');
   else if (c.maneuver.pivotTo) parts.push('pivots without thrust');
   else if (c.thrustUsed > 0) parts.push('holds Forward to keep displacement');
   else if (c.maneuver.roll) parts.push('only rolls');
   else parts.push('holds attitude and drifts');
-  return `${doctrine}: ${parts.join(', ')}${evaluator.hasFoes ? '' : ' — no enemy in play'}.`;
+  const head = evaluator.hasFoes ? `${evaluator.ship.doctrine}, ${evaluator.posture}` : `${evaluator.ship.doctrine}, no enemy in play`;
+  return `${head}: ${parts.join(', ')}.`;
 }
 
 /** The seed for a game and turn: the same reports always give the same reveal. */

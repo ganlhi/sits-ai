@@ -1,16 +1,16 @@
-/** Put a ship on the table. Position, orientation and vectors can be corrected afterwards on its card. */
+/** Put a ship on the table. Position, orientation, vectors and ratings can be corrected afterwards on its card. */
 import { useState } from 'react';
-import { BUILT_IN_SHIPS } from '../data/ships';
-import { LEVEL_ATTITUDE, type Attitude } from '../domain/geometry';
-import { CONTROLLERS, DOCTRINES, DOCTRINE_LABELS, FULL_EFFECTIVENESS, SIDES, addShip, type Controller, type Doctrine, type Game, type Side } from '../domain/game';
+import { LEVEL_ATTITUDE, velocity, type Attitude } from '../domain/geometry';
+import { CONTROLLERS, DOCTRINES, DOCTRINE_LABELS, FULL_EFFECTIVENESS, SIDES, addShip, ratingsOf, type Controller, type Doctrine, type Game, type Side } from '../domain/game';
+import { useClasses } from '../storage/shipClasses';
 import { AttitudeInput } from './AttitudeInput';
 import { HexOffsetInput, ZERO_DRAFT, draftToPosition, type OffsetDraft } from './HexOffsetInput';
 import { VelocityInput, type VelocityDraft } from './VelocityInput';
 import { draftToVelocity, velocityToDraft } from './drafts';
-import { velocity } from '../domain/geometry';
 
 export function AddShipPanel({ game, update }: { game: Game; update: (fn: (g: Game) => Game) => void }) {
-  const [classId, setClassId] = useState(BUILT_IN_SHIPS[0]?.id ?? '');
+  const { classes } = useClasses();
+  const [classId, setClassId] = useState(classes[0]?.id ?? '');
   const [name, setName] = useState('');
   const [side, setSide] = useState<Side>('red');
   const [controller, setController] = useState<Controller>('ai');
@@ -20,9 +20,13 @@ export function AddShipPanel({ game, update }: { game: Game; update: (fn: (g: Ga
   const [attitude, setAttitude] = useState<Attitude>(LEVEL_ATTITUDE);
   const [error, setError] = useState<string | null>(null);
 
+  const selected = classes.find((c) => c.id === classId) ?? classes[0];
+
   const add = () => {
-    const cls = BUILT_IN_SHIPS.find((c) => c.id === classId);
-    if (!cls) return;
+    if (!selected) {
+      setError('add a ship class first (Ship classes tab)');
+      return;
+    }
     const position = draftToPosition(pos);
     const v = draftToVelocity(vel);
     if (!position || !v) {
@@ -33,11 +37,12 @@ export function AddShipPanel({ game, update }: { game: Game; update: (fn: (g: Ga
     update((g) =>
       addShip(g, {
         id: crypto.randomUUID(),
-        name: name.trim() || `${cls.className} ${n}`,
-        classId: cls.id,
+        name: name.trim() || `${selected.name} ${n}`,
         side,
         controller,
         doctrine,
+        shipClass: selected,
+        ratings: ratingsOf(selected),
         position,
         velocity: v,
         attitude,
@@ -57,10 +62,10 @@ export function AddShipPanel({ game, update }: { game: Game; update: (fn: (g: Ga
       <div className="grid-3" style={{ marginTop: 8 }}>
         <div className="field">
           <label>Class</label>
-          <select value={classId} onChange={(e) => setClassId(e.target.value)}>
-            {BUILT_IN_SHIPS.map((c) => (
+          <select value={selected?.id ?? ''} onChange={(e) => setClassId(e.target.value)}>
+            {classes.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.className} {c.hullType} — {c.nationality}
+                {c.name}
               </option>
             ))}
           </select>
@@ -89,6 +94,12 @@ export function AddShipPanel({ game, update }: { game: Game; update: (fn: (g: Ga
           </div>
         </div>
       </div>
+      {selected && (
+        <p className="note">
+          {selected.name}: cost {selected.baseCost}, thrust {selected.maxThrust}, pivot {selected.maxPivot}, roll {selected.maxRoll}; bands {selected.bands.short.min}–{selected.bands.short.max} /{' '}
+          {selected.bands.medium.min}–{selected.bands.medium.max} / {selected.bands.long.min}–{selected.bands.long.max}.
+        </p>
+      )}
       {controller === 'ai' && (
         <div className="field">
           <label>Doctrine</label>
