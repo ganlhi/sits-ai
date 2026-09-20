@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SAMPLE_SD } from '../../data/ships/sampleSd';
-import { CUBE_ORIGIN, DIRECTION_CUBE, cubeScale, markers, position, purple, velocity, windowLabel, yellow } from '../geometry';
+import { CUBE_ORIGIN, DIRECTION_CUBE, cubeAdd, cubeScale, hexDistance, hexOffset, markers, position, purple, velocity, windowLabel, yellow } from '../geometry';
 import { advanceEvent, reduce, replay, type GameEvent, type StoredEvent } from './events';
 import { engagement, maneuverLimits, shipMotion, thrustLimit } from './derived';
 import { AVERAGE_GRADES, TURN_STEPS, type GameState, type ShipSetup } from './types';
@@ -112,6 +112,20 @@ describe('event-sourced game', () => {
     expect(windowLabel(e.salvoes[2]!.impact!)).toBe('D(yellow)');
     expect(e.arcs.forward).not.toBe('black'); // b is dead ahead of a
     expect(e.targetWedge).toBe(false);
+  });
+
+  it('shifts every ship on the table by the same offset and keeps relative geometry', () => {
+    const before = replay(stored(baseEvents));
+    const offset = hexOffset({ D: 3, E: 1 });
+    const g = reduce(before, { type: 'TableShifted', offset, alt: -1 });
+    expect(g.ships.a!.position).toEqual({ hex: offset, alt: -1 });
+    expect(g.ships.b!.position).toEqual({ hex: cubeAdd(cubeScale(DIRECTION_CUBE.A, 10), offset), alt: 1 });
+    expect(hexDistance(g.ships.a!.position.hex, g.ships.b!.position.hex)).toBe(hexDistance(before.ships.a!.position.hex, before.ships.b!.position.hex));
+    expect(g.ships.a!.velocity).toEqual(before.ships.a!.velocity);
+    expect(g.ships.b!.attitude).toEqual(before.ships.b!.attitude);
+    expect(g.log.at(-1)?.text).toBe('Table shifted by 3D + 1E, -1 altitude');
+    // a zero shift is a no-op and leaves no log entry
+    expect(reduce(before, { type: 'TableShifted', offset: CUBE_ORIGIN, alt: 0 })).toBe(before);
   });
 
   it('refuses to start without ships and to add a ship of an unknown class', () => {

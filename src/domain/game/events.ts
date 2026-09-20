@@ -9,7 +9,11 @@ import {
   attitudeFromWindows,
   maneuverPivots,
   planMotion,
+  cubeAdd,
+  cubeIsZero,
+  formatHexOffset,
   type AvidWindow,
+  type Cube,
   type Position,
   type Velocity,
   type VectorDirection,
@@ -38,6 +42,15 @@ export type GameEvent =
       readonly halfDisplacements?: readonly VectorDirection[];
       readonly forward?: AvidWindow;
       readonly top?: AvidWindow;
+    }
+  | {
+      /**
+       * Every miniature slides by the same offset (and altitude change), e.g. because the
+       * fleet drifted too close to the table edge. Relative geometry is untouched.
+       */
+      readonly type: 'TableShifted';
+      readonly offset: Cube;
+      readonly alt: number;
     }
   | { readonly type: 'BoxReported'; readonly shipId: ShipId; readonly trackId: TrackId; readonly index: number; readonly status: BoxStatus }
   | {
@@ -163,6 +176,16 @@ export function reduce(g: GameState, e: GameEvent): GameState {
         halfDisplacements: e.halfDisplacements ?? s.halfDisplacements,
         attitude: e.forward && e.top ? attitudeFromWindows(e.forward, e.top) : s.attitude,
       }));
+    case 'TableShifted': {
+      if (cubeIsZero(e.offset) && e.alt === 0) return g;
+      const ships = Object.fromEntries(
+        Object.entries(g.ships).map(([id, s]) => [id, { ...s, position: { hex: cubeAdd(s.position.hex, e.offset), alt: s.position.alt + e.alt } }]),
+      );
+      const parts: string[] = [];
+      if (!cubeIsZero(e.offset)) parts.push(formatHexOffset(e.offset));
+      if (e.alt !== 0) parts.push(`${e.alt > 0 ? '+' : ''}${e.alt} altitude`);
+      return log({ ...g, ships }, `Table shifted by ${parts.join(', ')}`);
+    }
     case 'BoxReported':
       return withShip(g, e.shipId, (s) => {
         const track = s.damage.tracks[e.trackId];

@@ -6,7 +6,9 @@
 import { useEffect, useState } from 'react';
 import {
   ALL_WINDOWS,
+  DIRECTION_CUBE,
   MAP_DIRECTIONS,
+  cubeAdd,
   MOUNTS,
   VECTOR_DIRECTIONS,
   formatVelocity,
@@ -24,6 +26,7 @@ import type { BoxStatus, TrackId } from '../../domain/ssd';
 import { AvidFlat } from '../avid/AvidFlat';
 import { SsdSheet } from '../ssd/SsdSheet';
 import { fmtPos } from './HexMap';
+import { HexOffsetInput, draftFromPosition, draftToPosition, type OffsetDraft } from './HexOffsetInput';
 
 function WindowSelect({ value, options, onChange }: { value: AvidWindow; options: readonly AvidWindow[]; onChange: (w: AvidWindow) => void }) {
   return (
@@ -40,9 +43,7 @@ function WindowSelect({ value, options, onChange }: { value: AvidWindow; options
 export function ShipPanel({ game, ship, dispatch }: { game: GameState; ship: ShipState; dispatch: (e: GameEvent) => void }) {
   const cls = shipClassOf(game, ship);
   const m = markers(ship.attitude);
-  const [q, setQ] = useState(String(ship.position.hex.x));
-  const [r, setR] = useState(String(ship.position.hex.z));
-  const [alt, setAlt] = useState(String(ship.position.alt));
+  const [pos, setPos] = useState<OffsetDraft>(draftFromPosition(ship.position));
   const [vel, setVel] = useState<Record<string, string>>({});
   const [fwd, setFwd] = useState<AvidWindow>(m.forward);
   const [top, setTop] = useState<AvidWindow>(m.top);
@@ -50,9 +51,7 @@ export function ShipPanel({ game, ship, dispatch }: { game: GameState; ship: Shi
   const [boxMode, setBoxMode] = useState<BoxStatus>('destroyed');
 
   useEffect(() => {
-    setQ(String(ship.position.hex.x));
-    setR(String(ship.position.hex.z));
-    setAlt(String(ship.position.alt));
+    setPos(draftFromPosition(ship.position));
     setVel(Object.fromEntries(VECTOR_DIRECTIONS.map((d) => [d, String(ship.velocity[d])])));
     const mk = markers(ship.attitude);
     setFwd(mk.forward);
@@ -63,26 +62,25 @@ export function ShipPanel({ game, ship, dispatch }: { game: GameState; ship: Shi
   const topOk = topOptions.some((w) => windowsEqual(w, top)) ? top : (topOptions[0] ?? top);
 
   const report = () => {
-    const x = Number(q);
-    const z = Number(r);
-    if (!Number.isInteger(x) || !Number.isInteger(z) || !Number.isInteger(Number(alt))) return;
+    const position = draftToPosition(pos);
+    if (!position) return;
     let v: Velocity;
     try {
       v = velocity(Object.fromEntries(VECTOR_DIRECTIONS.map((d) => [d, Number(vel[d] ?? 0)])));
     } catch {
       return;
     }
-    dispatch({ type: 'ShipReported', shipId: ship.id, position: { hex: { x, y: -x - z, z }, alt: Number(alt) }, velocity: v, forward: fwd, top: topOk });
+    dispatch({ type: 'ShipReported', shipId: ship.id, position, velocity: v, forward: fwd, top: topOk });
   };
 
+  /** One hex (or one level) in a direction; re-expressed from the centre so the legs stay the shortest walk. */
   const nudge = (d: (typeof MAP_DIRECTIONS)[number] | '+' | '-') => {
+    const cur = draftToPosition(pos) ?? ship.position;
     if (d === '+' || d === '-') {
-      setAlt(String(Number(alt) + (d === '+' ? 1 : -1)));
+      setPos(draftFromPosition({ hex: cur.hex, alt: cur.alt + (d === '+' ? 1 : -1) }));
       return;
     }
-    const dc = { A: [0, -1], B: [1, -1], C: [1, 0], D: [0, 1], E: [-1, 1], F: [-1, 0] }[d];
-    setQ(String(Number(q) + dc[0]!));
-    setR(String(Number(r) + dc[1]!));
+    setPos(draftFromPosition({ hex: cubeAdd(cur.hex, DIRECTION_CUBE[d]), alt: cur.alt }));
   };
 
   const onBox = (trackId: TrackId, index: number) => {
@@ -107,20 +105,7 @@ export function ShipPanel({ game, ship, dispatch }: { game: GameState; ship: Shi
 
       <details className="report">
         <summary>Report position, vectors, attitude</summary>
-        <div className="grid-3">
-          <div className="field">
-            <label>q</label>
-            <input value={q} onChange={(e) => setQ(e.target.value)} />
-          </div>
-          <div className="field">
-            <label>r</label>
-            <input value={r} onChange={(e) => setR(e.target.value)} />
-          </div>
-          <div className="field">
-            <label>altitude</label>
-            <input value={alt} onChange={(e) => setAlt(e.target.value)} />
-          </div>
-        </div>
+        <HexOffsetInput value={pos} onChange={setPos} />
         <div className="row">
           <span className="note">nudge</span>
           {[...MAP_DIRECTIONS, '+', '-'].map((d) => (

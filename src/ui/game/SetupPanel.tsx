@@ -9,6 +9,7 @@ import { GRADES, OFFICER_TYPES, type Grade, type OfficerType, type ShipClass } f
 import { listShips } from '../../storage/shipLibrary';
 import { DoctrineSelect } from './AiPanels';
 import { fmtPos } from './HexMap';
+import { HexOffsetInput, ZERO_DRAFT, draftToPosition, type OffsetDraft } from './HexOffsetInput';
 
 export function SetupPanel({ game, dispatch }: { game: GameState; dispatch: (e: GameEvent) => void }) {
   const library = listShips();
@@ -18,9 +19,7 @@ export function SetupPanel({ game, dispatch }: { game: GameState; dispatch: (e: 
   const [controller, setController] = useState<Controller>('player');
   const [grades, setGrades] = useState<Grades>(AVERAGE_GRADES);
   const [doctrine, setDoctrine] = useState<Doctrine>('balanced');
-  const [q, setQ] = useState('0');
-  const [r, setR] = useState('0');
-  const [alt, setAlt] = useState('0');
+  const [pos, setPos] = useState<OffsetDraft>(ZERO_DRAFT);
   const [vel, setVel] = useState<Record<string, string>>(Object.fromEntries(VECTOR_DIRECTIONS.map((d) => [d, '0'])));
   const [fwd, setFwd] = useState<AvidWindow>(yellow(0));
   const [top, setTop] = useState<AvidWindow>(purple('upper'));
@@ -32,10 +31,8 @@ export function SetupPanel({ game, dispatch }: { game: GameState; dispatch: (e: 
   const add = () => {
     const cls: ShipClass | undefined = library.find((c) => c.id === classId);
     if (!cls) return;
-    const x = Number(q);
-    const z = Number(r);
-    const a = Number(alt);
-    if (![x, z, a].every(Number.isInteger)) {
+    const position = draftToPosition(pos);
+    if (!position) {
       setError('position must be whole numbers');
       return;
     }
@@ -53,7 +50,7 @@ export function SetupPanel({ game, dispatch }: { game: GameState; dispatch: (e: 
           controller,
           grades,
           doctrine,
-          position: { hex: { x, y: -x - z, z }, alt: a },
+          position,
           velocity: v,
           forward: fwd,
           top: topOk,
@@ -110,19 +107,9 @@ export function SetupPanel({ game, dispatch }: { game: GameState; dispatch: (e: 
               <DoctrineSelect value={doctrine} onChange={setDoctrine} />
             </div>
           )}
-          <div className="field">
-            <label>q</label>
-            <input value={q} onChange={(e) => setQ(e.target.value)} />
-          </div>
-          <div className="field">
-            <label>r</label>
-            <input value={r} onChange={(e) => setR(e.target.value)} />
-          </div>
-          <div className="field">
-            <label>altitude</label>
-            <input value={alt} onChange={(e) => setAlt(e.target.value)} />
-          </div>
         </div>
+        <p className="note" style={{ marginTop: 8 }}>Position: count hexes from the centre of the map (the compass rosette), e.g. 9 in A then 3 in B.</p>
+        <HexOffsetInput value={pos} onChange={setPos} />
         <div className="row">
           <span className="note">vectors</span>
           {VECTOR_DIRECTIONS.map((d) => (
@@ -177,7 +164,7 @@ export function SetupPanel({ game, dispatch }: { game: GameState; dispatch: (e: 
           </button>
           {error && <span className="field-msg">{error}</span>}
         </div>
-        <p className="note">Hex coordinates are relative: put the first ship at 0,0 and count from there (q runs along B/E, r along D/A). The map on the right shows the result.</p>
+        <p className="note">Positions are offsets from the centre hex of the map in the six map directions A–F (A towards the top of the map, then clockwise). The map on the right shows the result; the centre hex is highlighted.</p>
       </section>
       <section className="panel">
         <h2>Ships on the table</h2>

@@ -3,6 +3,7 @@ import { TURN_STEPS, TURN_STEP_TITLES, advanceEvent, isSetupPhase, retreatEvent,
 import { useGame } from '../../storage/gameStore';
 import { HexMap } from './HexMap';
 import { SetupPanel } from './SetupPanel';
+import { ShiftTablePanel } from './ShiftTablePanel';
 import { ShipPanel } from './ShipPanel';
 import { EndOfTurnStep, ImpactStep, LaunchStep, MarkersStep, MoveStep, PlotStep } from './StepPanels';
 
@@ -86,6 +87,7 @@ export function GameScreen({ gameId, onBack }: { gameId: string; onBack: () => v
           <aside className="panel">
             <h2>Table</h2>
             <HexMap game={game} selected={sel?.id} onSelect={setSelected} showMarkers={false} />
+            <ShiftTablePanel game={game} dispatch={dispatch} />
           </aside>
         </div>
       ) : (
@@ -118,6 +120,7 @@ export function GameScreen({ gameId, onBack }: { gameId: string; onBack: () => v
             <aside className="panel">
               <h2>Table</h2>
               <HexMap game={game} selected={sel?.id} onSelect={setSelected} />
+              <ShiftTablePanel game={game} dispatch={dispatch} />
               <div className="seg ship-tabs" role="tablist">
                 {ships.map((s) => (
                   <button key={s.id} type="button" role="tab" aria-pressed={sel?.id === s.id} onClick={() => setSelected(s.id)} className={s.destroyed ? 'dead' : ''}>

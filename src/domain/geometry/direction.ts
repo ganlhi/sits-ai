@@ -77,3 +77,36 @@ export function decomposeCube(c: Cube): Decomposition | null {
   }
   throw new Error(`no decomposition for (${c.x},${c.y},${c.z})`);
 }
+
+/**
+ * Build a hex offset from whole amounts of map directions, e.g. `{ A: 9, B: 3 }` for
+ * "9 hexes in A then 3 in B". Amounts may be negative (a negative amount in A is the same
+ * as a positive one in D); directions need not be adjacent.
+ */
+export function hexOffset(parts: Partial<Readonly<Record<MapDirection, number>>>): Cube {
+  let x = 0;
+  let y = 0;
+  let z = 0;
+  for (const d of MAP_DIRECTIONS) {
+    const n = parts[d] ?? 0;
+    const u = DIRECTION_CUBE[d];
+    x += n * u.x;
+    y += n * u.y;
+    z += n * u.z;
+  }
+  return { x: x || 0, y: y || 0, z: z || 0 };
+}
+
+/**
+ * The offset from the map centre in table language: `"9A + 3B"`, `"4D"`, or `"centre"`.
+ * The two directions are always adjacent and the amounts non-negative, so the string is the
+ * shortest walk from the centre hex (see {@link decomposeCube}).
+ */
+export function formatHexOffset(c: Cube): string {
+  const d = decomposeCube(c);
+  if (!d) return 'centre';
+  const parts: string[] = [];
+  if (d.na > 0) parts.push(`${d.na}${d.a}`);
+  if (d.nb > 0) parts.push(`${d.nb}${d.b}`);
+  return parts.join(' + ');
+}

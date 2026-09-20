@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as fc from 'fast-check';
-import { DIRECTION_CUBE, MAP_DIRECTIONS, decomposeCube, directionAngle, directionAzimuth, oppositeDirection, rotateDirection } from './direction';
+import { DIRECTION_CUBE, MAP_DIRECTIONS, decomposeCube, directionAngle, directionAzimuth, formatHexOffset, hexOffset, oppositeDirection, rotateDirection } from './direction';
 import { CUBE_ORIGIN, cubeAdd, cubeScale, hexDistance, hexToPoint, pointToHex } from './hex';
 
 describe('map directions', () => {
@@ -49,6 +49,36 @@ describe('map directions', () => {
         const c = { x, y: -x - z, z };
         const p = hexToPoint(c);
         expect(pointToHex(p.x, p.y)).toEqual(c);
+      }),
+    );
+  });
+});
+
+describe('hex offsets from the map centre', () => {
+  it('builds an offset from direction amounts and formats it back', () => {
+    const c = hexOffset({ A: 9, B: 3 });
+    expect(c).toEqual(cubeAdd(cubeScale(DIRECTION_CUBE.A, 9), cubeScale(DIRECTION_CUBE.B, 3)));
+    expect(formatHexOffset(c)).toBe('9A + 3B');
+    expect(formatHexOffset(hexOffset({ D: 4 }))).toBe('4D');
+    expect(formatHexOffset(CUBE_ORIGIN)).toBe('centre');
+    expect(formatHexOffset(hexOffset({}))).toBe('centre');
+  });
+
+  it('cancels opposite directions and normalises to the shortest adjacent pair', () => {
+    expect(hexOffset({ A: 3, D: 3 })).toEqual(CUBE_ORIGIN);
+    expect(formatHexOffset(hexOffset({ A: -2 }))).toBe('2D');
+    // A and C are 120° apart: 1A + 1C is the same hex as 1B, one hex away
+    expect(formatHexOffset(hexOffset({ A: 1, C: 1 }))).toBe('1B');
+    expect(hexDistance(CUBE_ORIGIN, hexOffset({ A: 1, C: 1 }))).toBe(1);
+  });
+
+  it('round-trips any offset through the formatted notation', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: -8, max: 8 }), fc.integer({ min: -8, max: 8 }), fc.integer({ min: -8, max: 8 }), (a, b, c) => {
+        const off = hexOffset({ A: a, B: b, C: c });
+        const dec = decomposeCube(off);
+        const back = dec ? hexOffset({ [dec.a]: dec.na, [dec.b]: dec.nb }) : CUBE_ORIGIN;
+        expect(back).toEqual(off);
       }),
     );
   });

@@ -1,9 +1,9 @@
 /**
  * A top-down sketch of the table: hexes around the ships, each ship with its altitude, its
  * Midpoint and End-of-Turn markers and the line it will travel. The origin hex is wherever the
- * first ship was placed; the physical map's own numbering is not modelled.
+ * centre of the physical map (the highlighted hex); positions are offsets from it.
  */
-import { hexToPoint, pointToHex, type Cube, type Position } from '../../domain/geometry';
+import { formatHexOffset, hexToPoint, pointToHex, type Cube, type Position } from '../../domain/geometry';
 import { shipMotion, type GameState, type ShipState, shipsOf } from '../../domain/game';
 
 const SCALE = 34; // px per hex width
@@ -99,8 +99,9 @@ export function HexMap({ game, selected, onSelect, onHexClick, showMarkers = tru
   );
 }
 
+/** A position in table language: offset from the centre hex, then altitude ("9A + 3B · alt 2"). */
 export function fmtPos(p: Position): string {
-  return `q${p.hex.x} r${p.hex.z} · alt ${p.alt}`;
+  return `${formatHexOffset(p.hex)} · alt ${p.alt}`;
 }
 
 export function shipLabel(s: ShipState): string {

@@ -411,3 +411,34 @@ ul.effects li.effect-deflected {
   margin: 0 0 4px;
   font-size: 0.9rem;
 }
+
+/* offset-from-centre position input: "9 in A" legs */
+.leg {
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+.leg input {
+  width: 56px;
+  text-align: center;
+}
+
+.leg select {
+  width: auto;
+}
+
+.shift-table table.games-table {
+  margin-top: 8px;
+}
+
+.shift-done {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+}
+
+.shift-done p {
+  margin: 0 0 6px;
+}
