@@ -1,19 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { LEVEL_ATTITUDE, mountArcColour, windowDirection, yellow, blue, purple } from '../../domain/geometry';
 import { allCells, cellsFromEdge, currentValue, freshDamage, totalBoxes, trackSpec, validateShipClass } from '../../domain/ssd';
-import { draftFromShip, shipFromDraft } from '../../ui/ssd/draft';
 import { BUILT_IN_SHIPS, HAVOC_DD, SULTAN_BC, WARRIOR_CA } from './index';
 import { standardArcs } from './arcs';
 
 describe('built-in ship classes', () => {
-  it('all validate, round-trip through JSON and the editor text form, and have distinct ids', () => {
+  it('all validate, round-trip through JSON, and have distinct ids', () => {
     const ids = new Set<string>();
     for (const s of BUILT_IN_SHIPS) {
       const r = validateShipClass(JSON.parse(JSON.stringify(s)) as unknown);
       expect(r.ok, `${s.className}: ${r.ok ? '' : r.errors.join('; ')}`).toBe(true);
-      const d = shipFromDraft(draftFromShip(s));
-      expect(d.errors, s.className).toEqual([]);
-      expect(d.ship).toEqual(s);
       expect(ids.has(s.id)).toBe(false);
       ids.add(s.id);
     }

@@ -1,50 +1,41 @@
 /**
- * Scoring a candidate plan (PLAN.md Phase 6): expected boxes dealt minus expected boxes
- * received, plus positional terms, all from the Phase 5 expectation layer.
+ * Scoring a candidate plot: damage we expect to deal minus damage we expect to take, plus
+ * positional terms. The enemy's orders are unknown at plotting (it plots simultaneously), so
+ * every enemy is assumed to drift on its vectors and hold its attitude.
  *
- * The enemy's orders are unknown at plotting (it plots simultaneously), so it is assumed to
- * drift on its vectors and hold its attitude. Expensive pieces — the expected damage of a
- * salvo on a target facing, the expected boxes of one hit through a placement — are memoised
- * per evaluation session because they depend only on the target's state and the facing.
+ * The damage model is deliberately coarse — the real resolution happens on the table — but it
+ * keeps the shape of the rules:
+ *   - salvoes by EoT-to-EoT range band, bearings by salvo timing (RULES.md §3 step 3, §11);
+ *   - the ECM layer as a survival fraction by final column, the wedge as its +12 shift with no
+ *     countermissiles and half point defense (§12.2–12.3);
+ *   - beams hit automatically in arc and range, never through the wedge, at half range into an
+ *     unwalled bow or stern (§14.3);
+ *   - the facing that takes the hit is the reported effectiveness of that facing: it fires
+ *     fewer tubes, kills fewer missiles, and is worth more to hit.
  */
 import {
   MOUNTS,
   ZERO_VELOCITY,
   applyManeuver,
   bearing,
+  dot,
   impactWindow,
-  maneuverPivots,
+  markerDirection,
   mountArcColour,
   planMotion,
   wedgeCovers,
   windowDirection,
-  type ArcColour,
+  type ArcDiagram,
   type Attitude,
   type Bearing,
   type Maneuver,
   type Mount,
-  type Position,
   type TurnMotion,
+  type Vec3,
   type Velocity,
 } from '../geometry';
-import {
-  adjustedCmKills,
-  adjustedPdKills,
-  arcsOf,
-  beamDamageAtRange,
-  beamKind,
-  beamRangeFor,
-  ewoEcmModifier,
-  expectHit,
-  expectSalvo,
-  placeShot,
-  tacMqlModifier,
-  type DefenseContext,
-  type HitExpectation,
-  type Warhead,
-} from '../combat';
-import { shipClassOf, type GameState, type Launch, type ShipState } from '../game';
-import { currentValue, decoyTrackId, fconTrackId, freshTrack, internalTrackId, rangeBandFor, remainingCount, trackSpec, weaponTrackId, type SalvoTiming, type ShipClass } from '../ssd';
+import { bdaIndex, beamBatteries, beamDamageAtRange, ecmRating, enemiesOf, missileBattery, pointDefense, shipClassOf, type Game, type Launch, type Ship } from '../game';
+import { rangeBandFor, type SalvoTiming, type ShipClass } from '../ssd';
 import type { DoctrineWeights } from './doctrine';
 
 export interface Candidate {
@@ -58,6 +49,8 @@ export interface Breakdown {
   readonly received: number;
   readonly range: number;
   readonly positional: number;
+  /** Enemy salvoes that would arrive through our wedge. */
+  readonly wedgedSalvoes: number;
   readonly noise: number;
   readonly total: number;
 }
@@ -71,178 +64,176 @@ export interface Evaluation {
   readonly eotRangeToNearest: number | null;
 }
 
-/** A snapshot of an enemy as the planner assumes it: drifting, attitude held. */
+/** An enemy as the planner assumes it: drifting, attitude held. */
 interface Foe {
-  readonly ship: ShipState;
+  readonly ship: Ship;
   readonly cls: ShipClass;
   readonly motion: TurnMotion;
 }
 
-const rating = (cls: ShipClass, ship: ShipState, id: string): number => currentValue(trackSpec(cls, id), ship.damage.tracks[id] ?? freshTrack(trackSpec(cls, id))) ?? 0;
+/** Mean of "2d10−" (two dice, take the lower). */
+const MEAN_2D10_LOW = 3.5;
+/** The wedge's column shift in the ECM layer (C4.12). */
+const WEDGE_ECM = 12;
+/** Damage terms are scored in tens of points so the doctrine weights stay readable. */
+const DAMAGE_SCALE = 0.1;
 
-function battery(cls: ShipClass, ship: ShipState, mount: Mount): { tubes: number; warhead: Warhead; mql: number } | null {
-  const i = cls.mounts[mount].weapons.findIndex((w) => w.type === 'M');
-  if (i < 0) return null;
-  const tubes = rating(cls, ship, weaponTrackId(mount, i));
-  const mag = ship.damage.magazines[mount] ?? cls.mounts[mount].magazine ?? 0;
-  if (tubes <= 0 || mag <= 0) return null;
-  return { tubes, warhead: { kind: 'laserhead', damage: cls.mounts[mount].weapons[i]!.damage[0] ?? 0 }, mql: rating(cls, ship, fconTrackId(mount)) + tacMqlModifier(ship.grades.TAC) };
+/**
+ * Fraction of a salvo that survives the ECM layer at a final column: a straight line through
+ * the 100-missile row of the table (1 kill at column 1, 85 at column 25).
+ */
+export function ecmSurvival(column: number): number {
+  return Math.max(0, Math.min(1, 1 - 0.035 * (column - 1)));
 }
 
-function defenseContext(cls: ShipClass, ship: ShipState, attitude: Attitude, impactDir: ReturnType<typeof windowDirection>): DefenseContext {
-  const placement = placeShot(cls, ship.damage, attitude, impactDir, 'missile');
-  const mount = placement?.mount ?? null;
-  const pk = (type: 'CM' | 'PD'): number => {
-    if (!mount) return 0;
-    const i = cls.mounts[mount].weapons.findIndex((w) => w.type === type);
-    return i < 0 ? 0 : rating(cls, ship, weaponTrackId(mount, i));
-  };
-  let decoyShift: number | null = null;
-  const sides: ('port' | 'starboard')[] = mount === 'port' || mount === 'starboard' ? [mount] : ['port', 'starboard'];
-  for (const s of sides) {
-    const d = cls.mounts[s].decoys;
-    if (!d) continue;
-    const st = ship.damage.tracks[decoyTrackId(s)] ?? freshTrack(d);
-    if (remainingCount(st) > 0) decoyShift = currentValue(d, st);
+/** The facing a hit arriving from `dir` lands on: the nearest of the four side markers (C5.11). */
+export function impactFacing(a: Attitude, dir: Vec3): Mount {
+  let best: Mount = 'forward';
+  let bestDot = -Infinity;
+  for (const m of MOUNTS) {
+    const d = dot(dir, markerDirection(a, m));
+    if (d > bestDot) {
+      bestDot = d;
+      best = m;
+    }
   }
-  return {
-    ecm: rating(cls, ship, internalTrackId('ecm')) + ewoEcmModifier(ship.grades.EWO),
-    wedge: wedgeCovers(attitude, impactDir),
-    decoyShift,
-    decoyPolicy: 'always',
-    cmProbableKills: adjustedCmKills(pk('CM'), ship.grades.ATO),
-    pdProbableKills: adjustedPdKills(pk('PD'), ship.grades.ATO),
-    fconPenalty: mount ? rating(cls, ship, fconTrackId(mount)) : 0,
-  };
+  return best;
 }
 
-/** One planning session for one ship: caches keyed by what the expectation actually depends on. */
+/** A facing at 40% is worth more to hit than one at 100%: weaker sidewall, fewer defenses. */
+const vulnerability = (percent: number): number => 1 + (1 - Math.max(0, Math.min(100, percent)) / 100) * 0.5;
+
+export const arcsOf = (cls: ShipClass): Readonly<Record<Mount, ArcDiagram>> => ({
+  forward: cls.mounts.forward.arc,
+  aft: cls.mounts.aft.arc,
+  port: cls.mounts.port.arc,
+  starboard: cls.mounts.starboard.arc,
+});
+
+/** Drift for one turn: no thrust, no maneuver. */
+export const driftMotion = (s: Ship): TurnMotion => planMotion({ position: s.position, velocity: s.velocity, halfDisplacements: s.halfDisplacements }, ZERO_VELOCITY, false);
+
+interface Combatant {
+  readonly ship: Ship;
+  readonly cls: ShipClass;
+}
+
+/**
+ * Expected damage of one salvo from `shooter`'s mount at `target`, arriving from `impactDir`
+ * while the target holds `targetAttitude`, launched at `range`.
+ */
+export function salvoDamage(shooter: Combatant, mount: Mount, target: Combatant, targetAttitude: Attitude, impactDir: Vec3, range: number): number {
+  const battery = missileBattery(shooter.cls, mount, shooter.ship.effectiveness);
+  if (!battery) return 0;
+  const band = rangeBandFor(shooter.cls, range);
+  if (!band) return 0;
+  const wedge = wedgeCovers(targetAttitude, impactDir);
+  const facing = impactFacing(targetAttitude, impactDir);
+  const column = band.baseMql + (wedge ? WEDGE_ECM : ecmRating(target.cls, target.ship.bda)) + MEAN_2D10_LOW;
+  const defense = pointDefense(target.cls, facing, target.ship.effectiveness);
+  const through = battery.tubes * ecmSurvival(column) - (wedge ? 0 : defense.cm) - defense.pd * (wedge ? 0.5 : 1);
+  return Math.max(0, through) * battery.damage * vulnerability(target.ship.effectiveness[facing]);
+}
+
+/** Expected damage of `shooter`'s beams at `target` for one beam impact, positions and attitudes given. */
+export function beamDamage(shooter: Combatant, shooterAttitude: Attitude, target: Combatant, targetAttitude: Attitude, b: Bearing): number {
+  if (!b.window) return 0;
+  const dir = windowDirection(b.window);
+  const impactDir = windowDirection(impactWindow(b)!);
+  if (wedgeCovers(targetAttitude, impactDir)) return 0;
+  const facing = impactFacing(targetAttitude, impactDir);
+  const sidewall = facing === 'port' || facing === 'starboard';
+  const range = sidewall ? b.range : Math.floor(b.range / 2);
+  const arcs = arcsOf(shooter.cls);
+  let total = 0;
+  for (const m of MOUNTS) {
+    if (mountArcColour(arcs, m, shooterAttitude, dir) === 'black') continue;
+    for (const beam of beamBatteries(shooter.cls, m, shooter.ship.effectiveness)) {
+      const dmg = beamDamageAtRange(beam.damage, range);
+      if (dmg !== null) total += beam.count * dmg;
+    }
+  }
+  return total * vulnerability(target.ship.effectiveness[facing]);
+}
+
+/** One planning session for one ship. */
 export class Evaluator {
-  private readonly cls: ShipClass;
+  private readonly me: Combatant;
   private readonly foes: Foe[];
-  private readonly salvoCache = new Map<string, number>();
-  private readonly hitCache = new Map<string, HitExpectation | null>();
+  private readonly arcs: Readonly<Record<Mount, ArcDiagram>>;
 
   constructor(
-    readonly game: GameState,
-    readonly ship: ShipState,
+    readonly game: Game,
+    readonly ship: Ship,
     readonly weights: DoctrineWeights,
     private readonly noiseSource: () => number,
   ) {
-    this.cls = shipClassOf(game, ship);
-    this.foes = game.shipOrder
-      .map((id) => game.ships[id]!)
-      .filter((s) => s && !s.destroyed && s.side !== ship.side)
-      .map((s) => ({ ship: s, cls: shipClassOf(game, s), motion: planMotion({ position: s.position, velocity: s.velocity, halfDisplacements: s.halfDisplacements }, s.orders?.thrust ?? ZERO_VELOCITY, s.orders ? maneuverPivots(s.orders.maneuver) : false, s.grades.ENG) }));
+    const cls = shipClassOf(ship);
+    this.me = { ship, cls };
+    this.arcs = arcsOf(cls);
+    this.foes = enemiesOf(game, ship).map((s) => ({ ship: s, cls: shipClassOf(s), motion: driftMotion(s) }));
   }
 
   get hasFoes(): boolean {
     return this.foes.length > 0;
   }
 
-  /** Expected boxes of `missiles` from `shooter`'s mount at `target`, arriving through `impact` while the target holds `targetAttitude`. */
-  private salvoBoxes(shooter: { cls: ShipClass; ship: ShipState }, mount: Mount, target: { cls: ShipClass; ship: ShipState }, targetAttitude: Attitude, impact: NonNullable<Bearing['window']>, range: number): number {
-    const b = battery(shooter.cls, shooter.ship, mount);
-    if (!b) return 0;
-    const band = rangeBandFor(shooter.cls, range);
-    if (!band) return 0;
-    const dir = windowDirection(impact);
-    const key = `${shooter.ship.id}|${mount}|${target.ship.id}|${impact.ring}:${'az' in impact ? impact.az : ''}:${'hemi' in impact ? impact.hemi : ''}|${band.baseMql}|${attitudeKey(targetAttitude)}`;
-    const cached = this.salvoCache.get(key);
-    if (cached !== undefined) return cached;
-    const ctx = defenseContext(target.cls, target.ship, targetAttitude, dir);
-    const e = expectSalvo({ missiles: b.tubes, mql: band.baseMql + b.mql, contactNukes: false }, ctx, { cls: target.cls, damage: target.ship.damage, attitude: targetAttitude }, b.warhead, dir);
-    this.salvoCache.set(key, e.expectedBoxes);
-    return e.expectedBoxes;
-  }
-
-  /** Expected boxes from `shooter`'s beams at `target` right now (positions and attitudes given). */
-  private beamBoxes(shooter: { cls: ShipClass; ship: ShipState; attitude: Attitude }, target: { cls: ShipClass; ship: ShipState; attitude: Attitude }, b: Bearing): number {
-    if (!b.window) return 0;
-    const impactDir = windowDirection(impactWindow(b)!);
-    const placement = placeShot(target.cls, target.ship.damage, target.attitude, impactDir, 'beam');
-    if (!placement) return 0;
-    const dir = windowDirection(b.window);
-    const arcs = arcsOf(shooter.cls);
-    let total = 0;
-    for (const m of MOUNTS) {
-      if (mountArcColour(arcs, m, shooter.attitude, dir) === 'black') continue;
-      shooter.cls.mounts[m].weapons.forEach((w, wi) => {
-        const kind = beamKind(w.type);
-        if (!kind) return;
-        const count = rating(shooter.cls, shooter.ship, weaponTrackId(m, wi));
-        if (count <= 0) return;
-        if (kind === 'et' && placement.sidewallUp) return;
-        const dmg = beamDamageAtRange(w, beamRangeFor(placement, b.range, kind));
-        if (dmg === null) return;
-        const hits = kind === 'et' ? count * 3 : count;
-        const key = `${target.ship.id}|${placement.edge}|${placement.protection}|${kind}|${dmg}`;
-        let h = this.hitCache.get(key);
-        if (h === undefined) {
-          h = expectHit(target.cls, target.ship.damage, placement, { kind, damage: dmg });
-          this.hitCache.set(key, h);
-        }
-        total += hits * (h?.boxes ?? 0);
-      });
-    }
-    return total;
-  }
-
   evaluate(c: Candidate): Evaluation {
     const me = this.ship;
-    const motion = planMotion({ position: me.position, velocity: me.velocity, halfDisplacements: me.halfDisplacements }, c.thrust, maneuverPivots(c.maneuver), me.grades.ENG);
+    const w = this.weights;
+    const motion = planMotion({ position: me.position, velocity: me.velocity, halfDisplacements: me.halfDisplacements }, c.thrust, c.maneuver.pivotTo !== undefined);
     const attMid = applyManeuver(me.attitude, c.maneuver, 0.5);
     const attEot = applyManeuver(me.attitude, c.maneuver, 1);
     const myAttitudeAt: Record<SalvoTiming, Attitude> = { early: me.attitude, middle: attMid, late: attEot };
-    const w = this.weights;
 
     let dealt = 0;
     let received = 0;
     let positional = 0;
+    let wedgedSalvoes = 0;
     let nearest: number | null = null;
     const launches: Launch[] = [];
 
     for (const foe of this.foes) {
-      const eotRange = bearing(motion.endOfTurn, foe.motion.endOfTurn).range;
+      const eotB = bearing(motion.endOfTurn, foe.motion.endOfTurn);
+      const eotRange = eotB.range;
       nearest = nearest === null ? eotRange : Math.min(nearest, eotRange);
+      const priority = 1 + 0.15 * bdaIndex(foe.ship.bda);
+      const foeCombatant: Combatant = { ship: foe.ship, cls: foe.cls };
 
       // --- my missiles: launched at step 3 with my current attitude, salvoes by EoT range
-      const band = rangeBandFor(this.cls, eotRange);
+      const band = rangeBandFor(this.me.cls, eotRange);
       if (band) {
         const geometry: Record<SalvoTiming, Bearing> = {
           early: bearing(me.position, foe.ship.position),
           middle: bearing(me.position, foe.motion.midpoint),
           late: bearing(motion.midpoint, foe.motion.endOfTurn),
         };
-        const arcs = arcsOf(this.cls);
-        const perMount = new Map<Mount, { timings: SalvoTiming[]; boxes: number; missiles: number }>();
+        const perMount = new Map<Mount, { timings: SalvoTiming[]; damage: number; missiles: number }>();
         for (const t of band.salvoes) {
           const g = geometry[t];
           if (!g.window) continue;
-          const impact = impactWindow(g)!;
+          const impactDir = windowDirection(impactWindow(g)!);
           for (const m of MOUNTS) {
-            const b = battery(this.cls, me, m);
-            if (!b) continue;
-            if (mountArcColour(arcs, m, me.attitude, windowDirection(g.window)) === 'black') continue;
-            const boxes = this.salvoBoxes({ cls: this.cls, ship: me }, m, { cls: foe.cls, ship: foe.ship }, foe.ship.attitude, impact, g.range);
-            if (boxes <= 0) continue;
-            const entry = perMount.get(m) ?? { timings: [], boxes: 0, missiles: b.tubes };
+            const battery = missileBattery(this.me.cls, m, me.effectiveness);
+            if (!battery) continue;
+            if (mountArcColour(this.arcs, m, me.attitude, windowDirection(g.window)) === 'black') continue;
+            const dmg = salvoDamage(this.me, m, foeCombatant, foe.ship.attitude, impactDir, g.range);
+            if (dmg <= 0) continue;
+            const entry = perMount.get(m) ?? { timings: [], damage: 0, missiles: battery.tubes };
             entry.timings.push(t);
-            entry.boxes += boxes;
+            entry.damage += dmg;
             perMount.set(m, entry);
           }
         }
         for (const [m, e] of perMount) {
-          dealt += e.boxes;
+          dealt += e.damage * priority;
           launches.push({ mount: m, targetId: foe.ship.id, timings: e.timings, missiles: e.missiles });
         }
       }
 
-      // --- my beams at the two beam impacts: Midpoint (positions at midpoints, half maneuver) and EoT
-      const midB = bearing(motion.midpoint, foe.motion.midpoint);
-      const eotB = bearing(motion.endOfTurn, foe.motion.endOfTurn);
-      dealt += this.beamBoxes({ cls: this.cls, ship: me, attitude: attMid }, { cls: foe.cls, ship: foe.ship, attitude: foe.ship.attitude }, midB);
-      dealt += this.beamBoxes({ cls: this.cls, ship: me, attitude: attEot }, { cls: foe.cls, ship: foe.ship, attitude: foe.ship.attitude }, eotB);
+      // --- my beams at the two beam impacts: Midpoint (half maneuver) and End of Turn
+      dealt += beamDamage(this.me, attMid, foeCombatant, foe.ship.attitude, bearing(motion.midpoint, foe.motion.midpoint)) * priority;
+      dealt += beamDamage(this.me, attEot, foeCombatant, foe.ship.attitude, eotB) * priority;
 
       // --- the enemy's missiles at me, with my attitude at each impact time
       const foeBand = rangeBandFor(foe.cls, eotRange);
@@ -256,38 +247,36 @@ export class Evaluator {
         for (const t of foeBand.salvoes) {
           const g = geometry[t];
           if (!g.window) continue;
-          const impact = impactWindow(g)!;
+          const impactDir = windowDirection(impactWindow(g)!);
+          let anyBattery = false;
           for (const m of MOUNTS) {
-            if (!battery(foe.cls, foe.ship, m)) continue;
+            if (!missileBattery(foe.cls, m, foe.ship.effectiveness)) continue;
             if (mountArcColour(foeArcs, m, foe.ship.attitude, windowDirection(g.window)) === 'black') continue;
-            received += this.salvoBoxes({ cls: foe.cls, ship: foe.ship }, m, { cls: this.cls, ship: me }, myAttitudeAt[t], impact, g.range);
+            anyBattery = true;
+            received += salvoDamage(foeCombatant, m, this.me, myAttitudeAt[t], impactDir, g.range);
           }
-          if (wedgeCovers(myAttitudeAt[t], windowDirection(impact))) positional += w.wedge;
+          if (anyBattery && wedgeCovers(myAttitudeAt[t], impactDir)) {
+            positional += w.wedge;
+            wedgedSalvoes += 1;
+          }
         }
       }
       // --- the enemy's beams at me
-      received += this.beamBoxes({ cls: foe.cls, ship: foe.ship, attitude: foe.ship.attitude }, { cls: this.cls, ship: me, attitude: attMid }, bearing(foe.motion.midpoint, motion.midpoint));
-      received += this.beamBoxes({ cls: foe.cls, ship: foe.ship, attitude: foe.ship.attitude }, { cls: this.cls, ship: me, attitude: attEot }, bearing(foe.motion.endOfTurn, motion.endOfTurn));
+      received += beamDamage(foeCombatant, foe.ship.attitude, this.me, attMid, bearing(foe.motion.midpoint, motion.midpoint));
+      received += beamDamage(foeCombatant, foe.ship.attitude, this.me, attEot, bearing(foe.motion.endOfTurn, motion.endOfTurn));
 
       // --- still bearing next turn?
       if (eotB.window) {
-        const arcs = arcsOf(this.cls);
         const dir = windowDirection(eotB.window);
-        const bears = (['port', 'starboard'] as Mount[]).some((m) => battery(this.cls, me, m) && mountArcColour(arcs, m, attEot, dir) !== 'black');
+        const bears = (['port', 'starboard'] as const).some((m) => missileBattery(this.me.cls, m, me.effectiveness) && mountArcColour(this.arcs, m, attEot, dir) !== 'black');
         if (bears) positional += w.bearingNextTurn;
       }
     }
 
+    const caution = 1 + 0.35 * bdaIndex(me.bda);
     const range = w.preferredRange !== null && nearest !== null ? -w.rangeWeight * Math.abs(nearest - w.preferredRange) : 0;
     const noise = (this.noiseSource() - 0.5) * 2 * w.noise;
-    const total = w.offense * dealt - w.defense * received + range + positional + noise;
-    return { candidate: c, launches, breakdown: { dealt, received, range, positional, noise, total }, motion, eotAttitude: attEot, eotRangeToNearest: nearest };
+    const total = w.offense * dealt * DAMAGE_SCALE - w.defense * caution * received * DAMAGE_SCALE + range + positional + noise;
+    return { candidate: c, launches, breakdown: { dealt, received, range, positional, wedgedSalvoes, noise, total }, motion, eotAttitude: attEot, eotRangeToNearest: nearest };
   }
 }
-
-function attitudeKey(a: Attitude): string {
-  const r = (x: number) => Math.round(x * 20) / 20;
-  return `${r(a.forward.x)},${r(a.forward.y)},${r(a.forward.z)}|${r(a.top.x)},${r(a.top.y)},${r(a.top.z)}`;
-}
-
-export type { ArcColour, Position };

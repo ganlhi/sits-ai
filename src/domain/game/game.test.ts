@@ -1,136 +1,114 @@
 import { describe, expect, it } from 'vitest';
-import { SAMPLE_SD } from '../../data/ships/sampleSd';
-import { CUBE_ORIGIN, DIRECTION_CUBE, cubeAdd, cubeScale, hexDistance, hexOffset, markers, position, purple, velocity, windowLabel, yellow } from '../geometry';
-import { advanceEvent, reduce, replay, type GameEvent, type StoredEvent } from './events';
-import { engagement, maneuverLimits, shipMotion, thrustLimit } from './derived';
-import { AVERAGE_GRADES, TURN_STEPS, type GameState, type ShipSetup } from './types';
+import { HAVOC_DD, SAMPLE_SD, SULTAN_BC } from '../../data/ships';
+import { CUBE_ORIGIN, DIRECTION_CUBE, LEVEL_ATTITUDE, cubeScale, markers, position, velocity, windowLabel, yellow } from '../geometry';
+import { maneuverRatings, missileBattery, pointDefense, trackValueAfterLoss } from './ratings';
+import { addShip, nextTurn, removeShip, reportShip, shiftTable, undoTurn } from './turn';
+import { FULL_EFFECTIVENESS, liveShips, type Game, type Ship } from './types';
 
-const setup = (id: string, side: 'red' | 'green', hex = CUBE_ORIGIN, alt = 0, extra: Partial<ShipSetup> = {}): ShipSetup => ({
+const ship = (id: string, extra: Partial<Ship> = {}): Ship => ({
   id,
   name: id.toUpperCase(),
-  classId: SAMPLE_SD.id,
-  side,
-  controller: side === 'red' ? 'ai' : 'player',
-  grades: AVERAGE_GRADES,
-  position: position(hex, alt),
+  classId: SULTAN_BC.id,
+  side: 'red',
+  controller: 'player',
+  doctrine: 'balanced',
+  position: position(CUBE_ORIGIN, 0),
   velocity: velocity({}),
-  forward: yellow(0),
-  top: purple('upper'),
+  attitude: LEVEL_ATTITUDE,
+  halfDisplacements: [],
+  bda: 'undamaged',
+  effectiveness: FULL_EFFECTIVENESS,
+  orders: null,
   ...extra,
 });
 
-const stored = (events: GameEvent[]): StoredEvent[] => events.map((event, i) => ({ seq: i + 1, at: '2026-09-19T00:00:00Z', event }));
+const game = (ships: Ship[]): Game => ({ id: 'g', name: 'Test', createdAt: '2026-09-20T00:00:00Z', updatedAt: '2026-09-20T00:00:00Z', turn: 1, revealed: false, ships, history: [] });
 
-const baseEvents: GameEvent[] = [
-  { type: 'GameCreated', id: 'g1', name: 'Test', createdAt: '2026-09-19T00:00:00Z' },
-  { type: 'ClassAdded', shipClass: SAMPLE_SD },
-  { type: 'ShipAdded', setup: setup('a', 'red', CUBE_ORIGIN, 0, { velocity: velocity({ A: 2 }) }) },
-  { type: 'ShipAdded', setup: setup('b', 'green', cubeScale(DIRECTION_CUBE.A, 10), 2, { forward: yellow(6) }) },
-  { type: 'GameStarted' },
-];
-
-describe('event-sourced game', () => {
-  it('replays to a started game with two ships', () => {
-    const g = replay(stored(baseEvents));
-    expect(g.turn).toBe(1);
-    expect(g.step).toBe('markers');
-    expect(g.shipOrder).toEqual(['a', 'b']);
-    expect(windowLabel(markers(g.ships.b!.attitude).forward)).toBe('D(yellow)');
-    expect(g.ships.a!.damage.magazines.port).toBe(120);
+describe('ratings from the BDA', () => {
+  it('reads each track at the depth the damage level implies', () => {
+    expect(trackValueAfterLoss(SULTAN_BC.internals.pivot, 0)).toBe(3);
+    expect(trackValueAfterLoss(SULTAN_BC.internals.pivot, 0.45)).toBe(2); // 6 boxes, 2 gone → third box
+    expect(trackValueAfterLoss(SULTAN_BC.internals.pivot, 1)).toBe(0); // no exhausted value printed
+    expect(trackValueAfterLoss(SULTAN_BC.mounts.port.fcon, 1)).toBe(2); // exhausted value after the bar
   });
 
-  it('is deterministic and undo is dropping the last event', () => {
-    const events = stored([...baseEvents, { type: 'StepChanged', step: 'plot' }]);
-    const g1 = replay(events);
-    const g2 = replay(events);
-    expect(g1).toEqual(g2);
-    expect(g1.step).toBe('plot');
-    expect(replay(events.slice(0, -1)).step).toBe('markers');
+  it('Sultan: undamaged 3/4/3, heavy damage loses most of it, crippled nothing', () => {
+    expect(maneuverRatings(SULTAN_BC, 'undamaged')).toEqual({ pivot: 3, roll: 4, thrust: 3 });
+    const heavy = maneuverRatings(SULTAN_BC, 'heavy');
+    expect(heavy.pivot).toBeLessThan(3);
+    expect(heavy.thrust).toBeLessThan(3);
+    expect(maneuverRatings(SULTAN_BC, 'crippled')).toEqual({ pivot: 0, roll: 0, thrust: 0 });
+    // Havoc's three-box pivot track loses nothing at light damage, one box at medium
+    expect(maneuverRatings(HAVOC_DD, 'light')).toEqual({ pivot: 6, roll: 6, thrust: 3 });
+    expect(maneuverRatings(HAVOC_DD, 'medium')).toEqual({ pivot: 4, roll: 4, thrust: 2 });
   });
 
-  it('walks the nine steps and rolls the turn over', () => {
-    let g = replay(stored(baseEvents));
-    for (let i = 0; i < 8; i++) {
-      g = reduce(g, advanceEvent(g));
-      expect(g.step).toBe(TURN_STEPS[i + 1]);
-    }
-    expect(advanceEvent(g)).toEqual({ type: 'TurnEnded' });
-    g = reduce(g, advanceEvent(g));
-    expect(g.turn).toBe(2);
-    expect(g.step).toBe('markers');
-    // ship a drifted 2 hexes in A; ship b sat still
-    expect(g.ships.a!.position).toEqual(position(cubeScale(DIRECTION_CUBE.A, 2), 0));
-    expect(g.ships.b!.position).toEqual(position(cubeScale(DIRECTION_CUBE.A, 10), 2));
+  it('facing effectiveness scales tubes and probable kills', () => {
+    expect(missileBattery(SULTAN_BC, 'port', FULL_EFFECTIVENESS)).toEqual({ tubes: 18, damage: 8 });
+    expect(missileBattery(SULTAN_BC, 'port', { ...FULL_EFFECTIVENESS, port: 50 })?.tubes).toBe(9);
+    expect(missileBattery(SULTAN_BC, 'port', { ...FULL_EFFECTIVENESS, port: 0 })).toBeNull();
+    expect(pointDefense(SULTAN_BC, 'starboard', FULL_EFFECTIVENESS)).toEqual({ cm: 4, pd: 4 });
+    expect(pointDefense(SULTAN_BC, 'starboard', { ...FULL_EFFECTIVENESS, starboard: 25 })).toEqual({ cm: 1, pd: 1 });
+    expect(missileBattery(SAMPLE_SD, 'port', FULL_EFFECTIVENESS)?.tubes).toBeGreaterThan(0);
+  });
+});
+
+describe('turn rollover', () => {
+  const ai = ship('a', {
+    controller: 'ai',
+    velocity: velocity({ A: 2 }),
+    orders: { maneuver: { roll: { windows: 2, direction: 'starboard' } }, thrust: velocity({ B: 2 }), thrustUsed: 2, launches: [], rationale: '' },
+  });
+  const player = ship('p', { side: 'green', position: position(cubeScale(DIRECTION_CUBE.A, 10), 1), velocity: velocity({ D: 1, '+': 1 }) });
+  const g = { ...game([ai, player]), revealed: true };
+
+  it('moves AI ships to their displaced EoT marker with new vectors and the finished roll; drifts the rest', () => {
+    const n = nextTurn(g);
+    expect(n.turn).toBe(2);
+    expect(n.revealed).toBe(false);
+    const a = n.ships[0]!;
+    // 2 in A plus half of the 2 in B as displacement
+    expect(a.position.hex).toEqual({ x: 1, y: 2, z: -3 });
+    expect(a.velocity).toEqual(velocity({ A: 2, B: 2 }));
+    expect(a.orders).toBeNull();
+    expect(windowLabel(markers(a.attitude).forward)).toBe('A(yellow)');
+    expect(windowLabel(markers(a.attitude).top)).not.toBe('purple(upper)');
+    const p = n.ships[1]!;
+    expect(p.position).toEqual(position(cubeScale(DIRECTION_CUBE.A, 9), 2));
+    expect(p.velocity).toEqual(player.velocity);
   });
 
-  it('applies committed orders at end of turn: thrust, displacement, pivot and roll', () => {
-    let g: GameState = replay(stored(baseEvents));
-    // ship a: no pivot, thrust 2 in A → displacement 1 in A, new velocity 4 in A
-    g = reduce(g, { type: 'OrdersIssued', shipId: 'a', orders: { maneuver: {}, thrust: velocity({ A: 2 }), thrustUsed: 2 } });
-    // ship b: pivot 3 windows to point straight up, roll 1 to starboard, thrust 2 along the midpoint facing
-    g = reduce(g, { type: 'OrdersIssued', shipId: 'b', orders: { maneuver: { pivotTo: purple('upper'), roll: { windows: 1, direction: 'starboard' } }, thrust: velocity({ '+': 2 }), thrustUsed: 2 } });
-    const ma = shipMotion(g.ships.a!);
-    expect(ma.displacement).toEqual(velocity({ A: 1 }));
-    expect(ma.endOfTurn).toEqual(position(cubeScale(DIRECTION_CUBE.A, 3), 0));
-    const mb = shipMotion(g.ships.b!);
-    expect(mb.displacement).toEqual(velocity({})); // pivoting forfeits displacement
-    g = reduce(g, { type: 'TurnEnded' });
-    expect(g.ships.a!.position).toEqual(position(cubeScale(DIRECTION_CUBE.A, 3), 0));
-    expect(g.ships.a!.velocity).toEqual(velocity({ A: 4 }));
-    expect(g.ships.a!.orders).toBeNull();
-    expect(windowLabel(markers(g.ships.b!.attitude).forward)).toBe('purple(upper)');
-    expect(g.ships.b!.velocity).toEqual(velocity({ '+': 2 }));
+  it('undo restores the state before the rollover, orders included', () => {
+    const n = nextTurn(g);
+    expect(n.history).toHaveLength(1);
+    const back = undoTurn(n)!;
+    expect(back.turn).toBe(1);
+    expect(back.revealed).toBe(true);
+    expect(back.ships).toEqual(g.ships);
+    expect(undoTurn(back)).toBeNull();
   });
 
-  it('accepts corrections from the table and damage reports', () => {
-    let g = replay(stored(baseEvents));
-    g = reduce(g, { type: 'ShipReported', shipId: 'b', position: position(cubeScale(DIRECTION_CUBE.B, 4), -1), forward: yellow(2), top: purple('upper') });
-    expect(g.ships.b!.position.alt).toBe(-1);
-    expect(windowLabel(markers(g.ships.b!.attitude).forward)).toBe('B(yellow)');
-    g = reduce(g, { type: 'BoxReported', shipId: 'b', trackId: 'internals.ecm', index: 0, status: 'destroyed' });
-    expect(g.ships.b!.damage.tracks['internals.ecm']!.boxes[0]!.status).toBe('destroyed');
-    g = reduce(g, { type: 'MagazineReported', shipId: 'b', mount: 'port', remaining: 100 });
-    expect(g.ships.b!.damage.magazines.port).toBe(100);
-    g = reduce(g, { type: 'ShipDestroyed', shipId: 'b', destroyed: true });
-    expect(g.ships.b!.destroyed).toBe(true);
-    expect(g.log.at(-1)?.text).toContain('destroyed');
+  it('a report invalidates the plotted orders; a table shift does not', () => {
+    const r = reportShip(g, 'p', { bda: 'light' });
+    expect(r.revealed).toBe(false);
+    expect(r.ships[0]!.orders).toBeNull();
+    expect(r.ships[1]!.bda).toBe('light');
+    const s = shiftTable(g, DIRECTION_CUBE.C, -1);
+    expect(s.revealed).toBe(true);
+    expect(s.ships[0]!.position).toEqual(position(DIRECTION_CUBE.C, -1));
+    expect(s.ships[1]!.position.alt).toBe(0);
   });
 
-  it('derives ratings, limits and the launch geometry', () => {
-    let g = replay(stored(baseEvents));
-    expect(maneuverLimits(g, g.ships.a!)).toEqual({ pivot: 3, roll: 4 });
-    expect(thrustLimit(g, g.ships.a!)).toBe(2);
-    g = reduce(g, { type: 'BoxReported', shipId: 'a', trackId: 'internals.pivot', index: 0, status: 'destroyed' });
-    expect(maneuverLimits(g, g.ships.a!).pivot).toBe(3); // second box is also a 3
-    const e = engagement(g, g.ships.a!, g.ships.b!);
-    // a at origin moving 2 in A, b 10 hexes up-map and 2 levels up, stationary: EoT range ≈ √(8²+2²) = 8
-    expect(e.eotRange).toBe(8);
-    expect(e.band?.baseMql).toBe(4);
-    expect(e.salvoes.map((s) => s.available)).toEqual([false, true, true]);
-    expect(e.now.range).toBe(10);
-    expect(windowLabel(e.now.window!)).toBe('A(yellow)'); // 10 hexes for 2 levels: H ≥ 4V, yellow ring
-    expect(windowLabel(e.salvoes[2]!.impact!)).toBe('D(yellow)');
-    expect(e.arcs.forward).not.toBe('black'); // b is dead ahead of a
-    expect(e.targetWedge).toBe(false);
+  it('crippled ships drop out of the fight but keep drifting', () => {
+    const c = reportShip(g, 'a', { bda: 'crippled' });
+    expect(liveShips(c).map((s) => s.id)).toEqual(['p']);
+    expect(nextTurn(c).ships[0]!.position.hex).toEqual(cubeScale(DIRECTION_CUBE.A, 2));
   });
 
-  it('shifts every ship on the table by the same offset and keeps relative geometry', () => {
-    const before = replay(stored(baseEvents));
-    const offset = hexOffset({ D: 3, E: 1 });
-    const g = reduce(before, { type: 'TableShifted', offset, alt: -1 });
-    expect(g.ships.a!.position).toEqual({ hex: offset, alt: -1 });
-    expect(g.ships.b!.position).toEqual({ hex: cubeAdd(cubeScale(DIRECTION_CUBE.A, 10), offset), alt: 1 });
-    expect(hexDistance(g.ships.a!.position.hex, g.ships.b!.position.hex)).toBe(hexDistance(before.ships.a!.position.hex, before.ships.b!.position.hex));
-    expect(g.ships.a!.velocity).toEqual(before.ships.a!.velocity);
-    expect(g.ships.b!.attitude).toEqual(before.ships.b!.attitude);
-    expect(g.log.at(-1)?.text).toBe('Table shifted by 3D + 1E, -1 altitude');
-    // a zero shift is a no-op and leaves no log entry
-    expect(reduce(before, { type: 'TableShifted', offset: CUBE_ORIGIN, alt: 0 })).toBe(before);
-  });
-
-  it('refuses to start without ships and to add a ship of an unknown class', () => {
-    const g0 = reduce(reduce({} as GameState, baseEvents[0]!), baseEvents[1]!);
-    expect(() => reduce(g0, { type: 'GameStarted' })).toThrow();
-    expect(() => reduce(g0, { type: 'ShipAdded', setup: setup('x', 'red', CUBE_ORIGIN, 0, { classId: 'nope' }) })).toThrow();
+  it('adds and removes ships', () => {
+    const g2 = addShip(game([]), ship('x', { attitude: LEVEL_ATTITUDE, position: position(CUBE_ORIGIN, 0) }));
+    expect(g2.ships).toHaveLength(1);
+    expect(removeShip(g2, 'x').ships).toHaveLength(0);
+    expect(windowLabel(markers(g2.ships[0]!.attitude).forward)).toBe(windowLabel(yellow(0)));
   });
 });

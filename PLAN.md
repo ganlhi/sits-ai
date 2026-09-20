@@ -2,6 +2,28 @@
 
 Phase 1 (rules synthesis → [RULES.md](RULES.md)) is complete. This document plans phases 2–9.
 
+## Scope change — 2026-09-20: the lite opponent
+
+Phases 4–6 built a full digital notebook: event-sourced game, nine-step turn machine, tapped
+SSDs, a combat engine in resolve and expect modes. Before its table test, the scope was cut
+to the minimum the AI needs, on the premise that the player does the bookkeeping with the
+physical material:
+
+- **Kept**: positions as offsets from the map centre, the shift-the-table helper, the
+  geometry kernel (Phase 2), the ship class model and data (Phase 3), doctrines and
+  candidate generation (Phase 6).
+- **Replaced**: the game state is now a per-ship report — position, orientation, vectors, a
+  five-level battle damage assessment and a combat-effectiveness percentage per facing — and
+  the turn is *report → Reveal AI orders → Next turn*. The evaluator uses a coarse damage
+  model in place of the Phase 5 expectation layer; ratings are read off the class tracks at a
+  depth set by the BDA.
+- **Removed** (kept in git history, on the `bak` branch): the combat engine, the SSD editor
+  and sheet, the AVID inspector and 3-D sphere, the event log and IndexedDB store.
+
+What follows is the original plan, kept as the record of how the kernel and data came to be
+and as the roadmap if the full notebook is ever wanted again. Phases 7–9 still apply in
+spirit: deeper AI, scenarios, hardening.
+
 ---
 
 ## Shape of the problem

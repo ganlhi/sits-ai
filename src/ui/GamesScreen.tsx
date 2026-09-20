@@ -1,7 +1,5 @@
-import { useEffect, useState, type ChangeEvent } from 'react';
-import { deleteGame, exportGame, importGame, listGames, type GameRow } from '../../storage/db';
-import { createGame } from '../../storage/games';
-import { forgetGameStore } from '../../storage/gameStore';
+import { useState, type ChangeEvent } from 'react';
+import { createGame, deleteGame, exportGame, importGame, listGames, loadGame } from '../storage/games';
 
 function download(name: string, text: string): void {
   const blob = new Blob([text], { type: 'application/json' });
@@ -14,39 +12,36 @@ function download(name: string, text: string): void {
 }
 
 export function GamesScreen({ onOpen }: { onOpen: (id: string) => void }) {
-  const [games, setGames] = useState<GameRow[] | null>(null);
+  const [games, setGames] = useState(() => listGames());
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const refresh = () => setGames(listGames());
 
-  const refresh = () => listGames().then(setGames).catch((e) => setError(String(e)));
-  useEffect(() => {
-    void refresh();
-  }, []);
-
-  const onCreate = async () => {
-    const n = name.trim() || `Game ${new Date().toLocaleDateString()}`;
-    const id = await createGame(n);
+  const onCreate = () => {
+    const g = createGame(name.trim() || `Game ${new Date().toLocaleDateString()}`);
     setName('');
-    onOpen(id);
+    onOpen(g.id);
   };
-  const onDelete = async (g: GameRow) => {
-    if (!window.confirm(`Delete "${g.name}" and its whole log?`)) return;
-    await deleteGame(g.id);
-    forgetGameStore(g.id);
-    void refresh();
+  const onDelete = (id: string, gameName: string) => {
+    if (!window.confirm(`Delete "${gameName}"?`)) return;
+    deleteGame(id);
+    refresh();
   };
-  const onExport = async (g: GameRow) => download(`${g.name.replace(/[^\w-]+/g, '_')}.sits.json`, await exportGame(g.id));
+  const onExport = (id: string, gameName: string) => {
+    const g = loadGame(id);
+    if (g) download(`${gameName.replace(/[^\w-]+/g, '_')}.sits.json`, exportGame(g));
+  };
   const onImport = (ev: ChangeEvent<HTMLInputElement>) => {
     const file = ev.target.files?.[0];
     if (!file) return;
     file
       .text()
-      .then(importGame)
-      .then(() => {
+      .then((t) => {
+        importGame(t);
         setError(null);
-        void refresh();
+        refresh();
       })
-      .catch((e) => setError(`${file.name}: ${e instanceof Error ? e.message : String(e)}`));
+      .catch((e: unknown) => setError(`${file.name}: ${e instanceof Error ? e.message : String(e)}`));
     ev.target.value = '';
   };
 
@@ -55,8 +50,8 @@ export function GamesScreen({ onOpen }: { onOpen: (id: string) => void }) {
       <section className="panel">
         <h2>New game</h2>
         <div className="row">
-          <input value={name} placeholder="name" onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void onCreate()} />
-          <button type="button" onClick={() => void onCreate()}>
+          <input type="text" value={name} placeholder="name" onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && onCreate()} />
+          <button type="button" className="primary" onClick={onCreate}>
             Create
           </button>
           <label className="button">
@@ -68,12 +63,10 @@ export function GamesScreen({ onOpen }: { onOpen: (id: string) => void }) {
       </section>
       <section className="panel">
         <h2>Games</h2>
-        {games === null ? (
-          <p className="note">Loading…</p>
-        ) : games.length === 0 ? (
-          <p className="note">No games yet. Create one, add the ships on the table, and the app walks you through each turn.</p>
+        {games.length === 0 ? (
+          <p className="note">No games yet. Create one, add the ships on the table, and report the table at the start of each turn.</p>
         ) : (
-          <table className="games-table">
+          <table className="list">
             <thead>
               <tr>
                 <th>Name</th>
@@ -91,17 +84,17 @@ export function GamesScreen({ onOpen }: { onOpen: (id: string) => void }) {
                       {g.name}
                     </button>
                   </td>
-                  <td>{g.turn === 0 ? 'setup' : g.turn}</td>
+                  <td>{g.turn}</td>
                   <td>{g.shipCount}</td>
                   <td>{new Date(g.updatedAt).toLocaleString()}</td>
                   <td className="row">
                     <button type="button" onClick={() => onOpen(g.id)}>
                       Open
                     </button>
-                    <button type="button" onClick={() => void onExport(g)}>
+                    <button type="button" onClick={() => onExport(g.id, g.name)}>
                       Export
                     </button>
-                    <button type="button" onClick={() => void onDelete(g)}>
+                    <button type="button" onClick={() => onDelete(g.id, g.name)}>
                       Delete
                     </button>
                   </td>

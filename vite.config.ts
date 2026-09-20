@@ -61,8 +61,6 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,svg,woff2}'],
-        // the three.js chunk is large; cache it anyway so the sphere works offline
-        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
       },
     }),
   ],

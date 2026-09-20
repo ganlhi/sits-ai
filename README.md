@@ -1,31 +1,74 @@
 # SITS AI
 
 An offline PWA that plays the opposing side in the *Saganami Island Tactical Simulator*
-tabletop wargame. You set up the game, the app issues orders for its ships each turn, you
-execute them on the physical table and report back what happened.
+tabletop wargame. You keep the real bookkeeping on the table — SSDs, salvo cards, dice — and
+the app tracks only what its opponent needs to plot: where every ship is, how it is oriented,
+how fast it goes, and roughly how hurt it is.
 
 - Rules, restated for implementation: [RULES.md](RULES.md)
-- Development plan and phase gates: [PLAN.md](PLAN.md)
+- Development plan and history: [PLAN.md](PLAN.md)
+
+## The turn, at the table
+
+Every turn is three clicks and a report.
+
+1. **Report the table.** For every ship, the card shows what the app expects — an AI ship
+   where its orders put it, a player ship drifted along its vectors — and you change what the
+   table disagrees with:
+   - **position**: hexes from the centre of the map, as two legs (`9 in A`, then `3 in B`) and
+     an altitude;
+   - **orientation**: the Forward and Top markers, in the AVID's own notation;
+   - **vectors**: the eight arrows around the AVID;
+   - **battle damage assessment**: undamaged, light, medium, heavy, crippled/destroyed;
+   - **combat effectiveness** of each facing (forward, aft, port, starboard), as a percentage.
+2. **Reveal AI orders.** Every AI ship gets an order sheet in the book's notation: pivot
+   (windows and target window), roll, thrust (with the vector changes to write into the arrows),
+   where its Midpoint and End-of-Turn markers go, the Forward and Top windows to set at the
+   Midpoint and at End of Turn, and each missile launch with its salvo card entries (range,
+   bearing, impact window, base MQL per salvo). You execute them on the table.
+3. **Next turn.** The app moves every AI ship to its End-of-Turn marker, finishes its pivot and
+   roll and adds its thrust to its vectors; player ships are drifted. Report again.
+
+*Undo turn* goes back to the start of the previous turn. *Shift the whole table* slides every
+ship by the same offset when the fight drifts towards a map edge.
+
+## How the opponent plots
+
+The AI never sees your plot: its orders depend only on the report, and it assumes every enemy
+drifts on its vectors and holds its attitude. For each of its ships it enumerates every legal
+pivot, roll and thrust within the ship's ratings and scores each with a coarse damage model:
+
+- **Ratings from the BDA.** The damage level says how far down the ship's own pivot, roll,
+  thrust and ECM tracks the damage has reached (0 %, 20 %, 45 %, 70 %, all), and the rating is
+  read off the class card at that depth. A facing's effectiveness scales its launchers, beams,
+  countermissiles and point defense, and makes it a juicier target.
+- **Missiles**: salvoes by End-of-Turn range band, bearings by salvo timing, mounts that bear
+  at launch; the ECM layer as a survival fraction, the wedge as its +12 column shift with no
+  countermissiles and half point defense.
+- **Beams**: automatic in arc and range at the Midpoint and End of Turn, never through the
+  wedge, half range into an unwalled bow or stern.
+- **Doctrine** (balanced, missile duel, close to beam range, evade) sets the weights and a
+  preferred range; heavily damaged ships weigh damage received more. A little seeded noise
+  keeps it from being predictable, but the same report always gives the same reveal.
+
+If an AI ship's real pivot, roll or thrust rating is lower than the BDA implies, cap the order
+at the real rating — the geometry is the same.
 
 ## Layout
 
 ```
-src/domain/          pure TypeScript, no DOM / React / storage imports — the rules engine
-  geometry/          Phase 2: hexes, vectors, the AVID, attitude, bearings, thrust plotting,
-                     turn motion, firing arcs (tests alongside, built from the book's examples)
-  ssd/               Phase 3: the Track abstraction, hit location table, ship class model,
-                     damage state, validation
-  game/              Phase 4: game state as a fold over events, the nine-step turn machine,
-                     derived facts (markers, launch geometry, arcs)
-  combat/            Phase 5: dice and distributions, the Missile Defense Card, missile defense,
-                     damage allocation, beams, damage control, the expectation layer
-  ai/                Phase 6: doctrines, candidate generation, the evaluator, order sheets, seals
-src/data/ships/      ship classes; sampleSd.ts is the core book's Sample-class SD, the fixture
-src/storage/         persistence: ship library (localStorage), game event logs (IndexedDB/Dexie)
-src/ui/              React components (AvidFlat, AvidSphere, SsdSheet, SsdEditor, game screens …)
-src/inspector/       the dual-view AVID inspector (dev tool, becomes the Phase 4 widget)
-scripts/             environment helpers
+src/domain/geometry/  hexes, vectors, the AVID, attitude, bearings, thrust plotting, turn motion,
+                      firing arcs — the rules kernel, tested against the book's worked examples
+src/domain/ssd/       the ship class model (tracks, mounts, range bands, arcs)
+src/domain/game/      the lite game state: reports, ratings from the BDA, the turn rollover
+src/domain/ai/        doctrines, candidate generation, the evaluator, order sheets
+src/data/ships/       ship classes: the core book's Sample SD, Sultan BC, Warrior CA, Havoc DD
+src/storage/          games as JSON snapshots in localStorage
+src/ui/               React screens: games list, the game screen, ship cards, order sheets, map
 ```
+
+The previous full-bookkeeping app (combat engine, SSD editor, AVID inspector, event-sourced
+game) lives in git history, on the `bak` branch.
 
 Conventions, everywhere: map direction **A** is +y (north), directions run clockwise A→F,
 altitude is +z; azimuths are degrees clockwise from A. Hexes are cube coordinates. An
@@ -33,110 +76,32 @@ attitude is an orthonormal (Forward, Top) frame; the six AVID markers are derive
 
 ## Setup
 
-Node 24+. The project lives in a Google Drive folder whose path contains an emoji, and both
-facts matter:
-
-- **Install dependencies with `scripts/install-deps.ps1`**, not `npm install`. npm's parallel
-  extraction corrupts files on Google Drive's streaming filesystem (and the filesystem refuses
-  junctions, so `node_modules` cannot be redirected). The script installs into
-  `%USERPROFILE%\.sits-ai\staging` and mirrors `node_modules` back single-threaded with retries.
-  To add a package: `scripts\install-deps.ps1 -Packages "-D zod"`.
-- **Run tools through `npm run …`**, whose scripts call `node` on relative paths. The
-  `node_modules\.bin` shims fail on the emoji path.
+Node 24+.
 
 ```
+npm install
 npm test            # vitest
 npm run typecheck   # tsc --noEmit
-npm run dev         # the inspector at http://localhost:5173
-npm run build
+npm run dev         # http://localhost:5173
+npm run build       # dist/, an installable offline PWA
 ```
 
-## Status
-
-| Phase | State |
-|---|---|
-| 1 — rules synthesis | done |
-| 2 — geometry kernel + dual-view AVID inspector | done |
-| 3 — SSD schema, Sample-class fixture, editor | done |
-| 4 — playable notebook PWA (no AI) | done — needs its table test (≤ 90 s of entry per turn) |
-| 5 — combat resolution engine (resolve + expect) | done |
-| 6 — AI opponent v1 (heuristic, sealed orders, order sheets) | done — needs its three-game playtest |
-| 7 — AI v2, officers/miracles, pods, LACs | next, only if v1 plays too shallow |
-
-## The opponent
-
-Mark a ship *ai* at setup and give it a doctrine (balanced, missile duel, close to beam range,
-evade). When the plotting step opens the AI plots every one of its ships first — it enumerates
-every legal pivot/roll/thrust within the ship's ratings, scores each with the expectation layer
-(boxes it expects to deal by missiles and beams minus boxes it expects to take, with the enemy
-assumed to drift and hold attitude, plus the doctrine's range and wedge preferences and a little
-noise) — locks the best, and shows only a **seal** (a hash of the orders). Lock your own ships
-and the order sheets are revealed in the book's notation with a one-line reason: *"Pivot 2
-windows: Forward from A(yellow) to A/B(blue, upper). Roll 1 window to starboard. Thrust 2 along
-the Midpoint facing …: write 1 in A, 1 in B into the AVID arrows. Launch from the Starboard
-Broadside: 32 tubes at HMS X, Middle + Late salvoes."* Step 3 lists its launches; the move
-steps repeat the sheet next to the attitude to set.
-
-## Combat at the table
-
-The impact steps offer to resolve a salvo or a beam impact with the app's dice: it pre-fills
-missiles, MQL (range band + fire control + TAC grade), the target's ECM, countermissile and
-point-defense probable kills, decoys and wedge from the game state, shows the expected result,
-rolls, lists every effect (penetration, hit location, boxes, cascades, explosion checks) and
-applies it to the target's sheet in one tap. End of turn has damage control. Prefer real dice?
-Tap the destroyed boxes on the sheet instead — both paths are just events.
-
-## Playing with the notebook
-
-**Games** → create → add the ships on the table (class, side, who controls it, hex, altitude,
-vectors, Forward and Top windows) → *Start turn 1*. The step bar follows the Reference Card:
-markers, plotting (lock every ship's pivot/roll/thrust; the app shows the Midpoint facing,
-displacement and EoT), launch geometry (ranges, salvoes, bearings, impact windows, which mounts
-bear), impact prompts with beam ranges, move prompts with the attitude at the Midpoint and EoT
-(flat AVID, optional 3-D), and end of turn (vector consolidation shown step by step). *End turn*
-moves every ship to its EoT marker. Whatever the table disagrees with, report it in the ship
-panel; tap boxes on the sheet to mark damage. Every change is an event: **Undo** removes the
-last one, and a game exports as its event log.
-
-Installable and offline: `npm run build` then serve `dist/` (or `npm run preview`).
+The npm scripts call `node` on relative paths rather than the `node_modules/.bin` shims, and
+`scripts/install-deps.ps1` is a slow but safe installer for a project kept on a Google Drive
+folder. Neither is needed on an ordinary local disk.
 
 ## Publishing on GitHub Pages
 
-The repository ships a workflow ([.github/workflows/pages.yml](.github/workflows/pages.yml))
-that tests, builds and deploys the app on every push to `main`. To turn it on:
-
-1. Push this repository to GitHub (the folder is already a git repo with `main` as its branch):
-   ```
-   git remote add origin https://github.com/<owner>/<repo>.git
-   git push -u origin main
-   ```
-2. On GitHub: **Settings → Pages → Build and deployment → Source: “GitHub Actions”**.
-3. Push (or run the workflow from the **Actions** tab). The app appears at
-   `https://<owner>.github.io/<repo>/`. On a phone, open that address and *Add to Home Screen*;
-   it then works offline and updates itself on the next visit after each deploy.
-
-The base path is derived from the repository name (`BASE_PATH=/<repo>/`), so the workflow
-needs no editing if you rename the repository. For a user/organisation site
-(`<owner>.github.io` as the repository name) set `BASE_PATH: /` in the workflow instead.
-
-Nothing on the page talks to a server: games and ship classes stay in the visiting browser's
-IndexedDB and localStorage. Export a game or class to JSON before clearing site data or
-switching devices.
+[.github/workflows/pages.yml](.github/workflows/pages.yml) tests, builds and deploys the app
+on every push to `main`. Turn it on once with **Settings → Pages → Source: “GitHub Actions”**;
+the app appears at `https://<owner>.github.io/<repo>/`. On a phone, open it and *Add to Home
+Screen*; it works offline and updates itself after each deploy. Games stay in the visiting
+browser; export to JSON before clearing site data or switching devices.
 
 ## Ship classes
 
-Built in: the core book's **Sample-class SD** and three Ship Book cards from the folder above
-— **Sultan-class BC** (People's Navy, SB1), **Warrior-class CA** and **Havoc-class DD** (RMN,
-SB3) — transcribed from the vector PDFs in `src/data/ships/`. The Ship Book 2 and 3 PDFs in
-that folder hold the rest of the fleets and can be added the same way (or through the editor).
-
-## Entering a ship class
-
-Ship classes are typed in from the physical SSD in the **Ship classes** screen, using text
-forms that read like the card: a track is `0 0 1 3 | 4`, `_*8 (W)` or `2*9 1 1*5 (1)*3`; a
-weapon line is `16M | !8` (a countdown of 8 tubes); the hit location table is 11 rows of 19
-codes with `.` for blank and `*SI*` for the Core. Classes are validated as you type, saved in
-the browser, and can be exported/imported as JSON. The built-in Sample class is the template.
-
-Things transcribed from the scan that should be checked against the physical components are
-marked `[verify …]` in source comments and listed in RULES.md §23.
+Built in: the core book's **Sample-class SD**, the **Sultan-class BC** (People's Navy), the
+**Warrior-class CA** and **Havoc-class DD** (RMN), transcribed from the Ship Book cards into
+`src/data/ships/`. Add a class the same way: a TypeScript file next to them, listed in
+`src/data/ships/index.ts`. The AI reads a class's range bands, mounts, weapons, arcs and the
+pivot, roll, thrust and ECM tracks; the hit location table and hull are carried but unused.

@@ -3,7 +3,7 @@
  * legs plus an altitude, e.g. "9 in A + 3 in B, altitude 2". Every position on the table has
  * such a description with two adjacent directions; the player may type any two.
  */
-import { CUBE_ORIGIN, MAP_DIRECTIONS, decomposeCube, hexOffset, rotateDirection, type Cube, type MapDirection, type Position } from '../../domain/geometry';
+import { CUBE_ORIGIN, MAP_DIRECTIONS, decomposeCube, hexOffset, rotateDirection, type Cube, type MapDirection, type Position } from '../domain/geometry';
 
 export interface OffsetDraft {
   readonly na: string;
@@ -20,6 +20,8 @@ export function draftFromPosition(p: Position): OffsetDraft {
 export function draftFromCube(c: Cube, alt = '0'): OffsetDraft {
   const d = decomposeCube(c);
   if (!d) return { na: '0', a: 'A', nb: '0', b: 'B', alt };
+  // a single leg reads as "8 in B", not "0 in A then 8 in B"
+  if (d.na === 0) return { na: String(d.nb), a: d.b, nb: '0', b: rotateDirection(d.b, 1), alt };
   return { na: String(d.na), a: d.a, nb: String(d.nb), b: d.b, alt };
 }
 
@@ -77,7 +79,7 @@ export interface HexOffsetInputProps {
   readonly altLabel?: string;
 }
 
-/** Two legs from the centre and an altitude, laid out like the other three-column forms. */
+/** Two legs from the centre and an altitude. */
 export function HexOffsetInput({ value, onChange, altLabel = 'altitude' }: HexOffsetInputProps) {
   // when the first direction changes and the second was the next one clockwise, keep it so: the pair stays a natural "go, then turn" walk
   const setA = (na: string, a: MapDirection) => {

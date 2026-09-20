@@ -1,7 +1,9 @@
 /**
- * The AI opponent, v1 (PLAN.md Phase 6): doctrines, candidate generation, an evaluator built
- * on the Phase 5 expectation layer, and order sheets.
+ * The lite AI opponent: doctrines, candidate generation, a coarse damage evaluator, and order
+ * sheets in the book's notation.
  */
 export * from './doctrine';
+export * from './rng';
 export * from './evaluate';
 export * from './plan';
+export * from './orderSheet';

@@ -1,67 +1,55 @@
 /**
- * Game state (PLAN.md Phase 4).
+ * Game state for the lite opponent: the minimum the AI needs to plot a turn.
  *
- * A game is a fold over events (see events.ts). The state holds a snapshot of every ship class
- * in use so a saved game stays valid if the library changes later.
+ * The player keeps the real bookkeeping on the table (SSDs, salvo cards, dice). At the start
+ * of every turn they report, per ship, what the table shows — position, orientation, vectors,
+ * a battle damage assessment and a rough combat effectiveness per facing — and the app plots
+ * the AI ships from that. Nothing else is tracked.
  */
-import type { Attitude, AvidWindow, Maneuver, Mount, Position, Velocity, VectorDirection } from '../geometry';
-import type { Grade, OfficerType, SalvoTiming, ShipClass, ShipDamage } from '../ssd';
+import { BUILT_IN_SHIPS } from '../../data/ships';
+import { formatHexOffset, type Attitude, type Maneuver, type Mount, type Position, type VectorDirection, type Velocity } from '../geometry';
+import type { SalvoTiming, ShipClass } from '../ssd';
 
 export type Side = 'red' | 'green';
 export const SIDES: readonly Side[] = ['red', 'green'];
 
 export type Controller = 'player' | 'ai';
+export const CONTROLLERS: readonly Controller[] = ['player', 'ai'];
 
 export type ShipId = string;
 
-/** The nine steps of the turn sequence (RULES.md §3, Reference Card A3.0). */
-export const TURN_STEPS = ['markers', 'plot', 'launch', 'earlyImpact', 'moveMidpoint', 'middleImpact', 'moveEot', 'lateImpact', 'endOfTurn'] as const;
-export type TurnStep = (typeof TURN_STEPS)[number];
-
-export const TURN_STEP_TITLES: Readonly<Record<TurnStep, string>> = {
-  markers: '1 · Place Midpoint and End-of-Turn markers',
-  plot: '2 · AVID plotting, thrust plotting, displace EoT',
-  launch: '3 · Launch missiles',
-  earlyImpact: '4 · Early missile impact',
-  moveMidpoint: '5 · Move to Midpoint; apply ½ pivot and ½ roll',
-  middleImpact: '6 · Middle missile impact, first beam impact',
-  moveEot: '7 · Move to End of Turn; finish pivot and roll',
-  lateImpact: '8 · Late missile impact, second beam impact',
-  endOfTurn: '9 · Add thrust to vectors, consolidate, damage control, other actions',
-};
-
-export function nextStep(step: TurnStep): TurnStep | null {
-  const i = TURN_STEPS.indexOf(step);
-  return TURN_STEPS[i + 1] ?? null;
-}
-
-export function previousStep(step: TurnStep): TurnStep | null {
-  const i = TURN_STEPS.indexOf(step);
-  return i > 0 ? (TURN_STEPS[i - 1] ?? null) : null;
-}
-
-/** How an AI-controlled ship fights (weights live in domain/ai). */
+/** How an AI-controlled ship fights (weights live in domain/ai/doctrine.ts). */
 export type Doctrine = 'balanced' | 'missileDuel' | 'closeToBeams' | 'evade';
 export const DOCTRINES: readonly Doctrine[] = ['balanced', 'missileDuel', 'closeToBeams', 'evade'];
+export const DOCTRINE_LABELS: Readonly<Record<Doctrine, string>> = {
+  balanced: 'Balanced — trade fire, keep a broadside on the enemy',
+  missileDuel: 'Missile duel — hold the range where the salvo count favours us',
+  closeToBeams: 'Close to beam range — accept the missile envelope',
+  evade: 'Evade — open the range, interpose the wedge, survive',
+};
 
-export type Grades = Readonly<Record<OfficerType, Grade>>;
+/** Battle Damage Assessment: the player's one-word summary of a ship's SSD. */
+export type Bda = 'undamaged' | 'light' | 'medium' | 'heavy' | 'crippled';
+export const BDA_LEVELS: readonly Bda[] = ['undamaged', 'light', 'medium', 'heavy', 'crippled'];
+export const BDA_LABELS: Readonly<Record<Bda, string>> = {
+  undamaged: 'Undamaged',
+  light: 'Light damage',
+  medium: 'Medium damage',
+  heavy: 'Heavy damage',
+  crippled: 'Crippled / destroyed',
+};
+/**
+ * Fraction of the pivot, roll, thrust and ECM tracks assumed crossed out at each level. The
+ * ratings the AI plots with are read from the ship's own tracks at that depth, so a Sultan with
+ * medium damage plots with the pivot its card gives after two boxes are gone.
+ */
+export const BDA_TRACK_LOSS: Readonly<Record<Bda, number>> = { undamaged: 0, light: 0.2, medium: 0.45, heavy: 0.7, crippled: 1 };
+export const bdaIndex = (b: Bda): number => BDA_LEVELS.indexOf(b);
 
-export const AVERAGE_GRADES: Grades = { TAC: 'average', EWO: 'average', ATO: 'average', HELM: 'average', ENG: 'average', CREW: 'average' };
-
-/** What the player enters to put a ship on the table. */
-export interface ShipSetup {
-  readonly id: ShipId;
-  readonly name: string;
-  readonly classId: string;
-  readonly side: Side;
-  readonly controller: Controller;
-  readonly grades: Grades;
-  readonly doctrine?: Doctrine;
-  readonly position: Position;
-  readonly velocity: Velocity;
-  readonly forward: AvidWindow;
-  readonly top: AvidWindow;
-}
+/** Combat effectiveness of each facing, in percent: launchers, beams, CM/PD and sidewall together. */
+export type Effectiveness = Readonly<Record<Mount, number>>;
+export const FULL_EFFECTIVENESS: Effectiveness = { forward: 100, aft: 100, port: 100, starboard: 100 };
+export const MOUNT_SHORT: Readonly<Record<Mount, string>> = { forward: 'Fwd', aft: 'Aft', port: 'Port', starboard: 'Stbd' };
 
 /** A planned missile launch (step 3): one mount at one target, the salvoes it will fire. */
 export interface Launch {
@@ -71,64 +59,67 @@ export interface Launch {
   readonly missiles: number;
 }
 
-/** One ship's plotted orders for the turn (step 2), plus the launches it intends for step 3. */
-export interface TurnOrders {
+/** One AI ship's plot for the turn (step 2) and its launches (step 3). */
+export interface Orders {
   readonly maneuver: Maneuver;
   /** The vector change from thrust, as written in the grey areas of the AVID arrows. */
   readonly thrust: Velocity;
-  /** How much thrust was spent (for the record; the delta is what matters). */
   readonly thrustUsed: number;
-  readonly launches?: readonly Launch[];
+  readonly launches: readonly Launch[];
   /** The AI's one-line reason, for the order sheet. */
-  readonly rationale?: string;
+  readonly rationale: string;
 }
 
-export interface ShipState {
+export interface Ship {
   readonly id: ShipId;
   readonly name: string;
   readonly classId: string;
   readonly side: Side;
   readonly controller: Controller;
-  readonly grades: Grades;
   readonly doctrine: Doctrine;
   readonly position: Position;
   readonly velocity: Velocity;
-  readonly halfDisplacements: readonly VectorDirection[];
   readonly attitude: Attitude;
-  readonly damage: ShipDamage;
-  readonly destroyed: boolean;
-  /** Orders committed this turn, or null before plotting. */
-  readonly orders: TurnOrders | null;
+  /** Half hexes of displacement carried over (AI ships only; the app computes their motion). */
+  readonly halfDisplacements: readonly VectorDirection[];
+  readonly bda: Bda;
+  readonly effectiveness: Effectiveness;
+  /** The AI's plot for this turn, once revealed. Always null for player ships. */
+  readonly orders: Orders | null;
 }
 
-export interface LogEntry {
+/** What "Undo turn" restores. */
+export interface Snapshot {
   readonly turn: number;
-  readonly step: TurnStep;
-  readonly text: string;
+  readonly revealed: boolean;
+  readonly ships: readonly Ship[];
 }
 
-export interface GameState {
+export interface Game {
   readonly id: string;
   readonly name: string;
   readonly createdAt: string;
-  /** 0 while setting up; the first turn is 1. */
+  readonly updatedAt: string;
+  /** The first turn is 1; ships may be added at any time. */
   readonly turn: number;
-  readonly step: TurnStep;
-  readonly classes: Readonly<Record<string, ShipClass>>;
-  readonly ships: Readonly<Record<ShipId, ShipState>>;
-  /** Display order. */
-  readonly shipOrder: readonly ShipId[];
-  readonly log: readonly LogEntry[];
+  /** Whether the AI's orders for this turn have been plotted and shown. */
+  readonly revealed: boolean;
+  readonly ships: readonly Ship[];
+  readonly history: readonly Snapshot[];
 }
 
-export const isSetupPhase = (g: GameState): boolean => g.turn === 0;
+export const isOutOfAction = (s: Ship): boolean => s.bda === 'crippled';
+export const liveShips = (g: Game): Ship[] => g.ships.filter((s) => !isOutOfAction(s));
+export const enemiesOf = (g: Game, s: Ship): Ship[] => liveShips(g).filter((e) => e.side !== s.side);
+export const aiShips = (g: Game): Ship[] => g.ships.filter((s) => s.controller === 'ai');
+export const shipById = (g: Game, id: ShipId): Ship | undefined => g.ships.find((s) => s.id === id);
 
-export function shipsOf(g: GameState): ShipState[] {
-  return g.shipOrder.flatMap((id) => (g.ships[id] ? [g.ships[id]!] : []));
-}
-
-export function shipClassOf(g: GameState, ship: ShipState): ShipClass {
-  const c = g.classes[ship.classId];
-  if (!c) throw new Error(`game has no class ${ship.classId}`);
+export function classById(id: string): ShipClass {
+  const c = BUILT_IN_SHIPS.find((s) => s.id === id);
+  if (!c) throw new Error(`unknown ship class ${id}`);
   return c;
 }
+export const shipClassOf = (s: Ship): ShipClass => classById(s.classId);
+
+/** A position in table language: offset from the centre hex, then altitude ("9A + 3B · alt 2"). */
+export const formatPosition = (p: Position): string => `${formatHexOffset(p.hex)} · alt ${p.alt}`;

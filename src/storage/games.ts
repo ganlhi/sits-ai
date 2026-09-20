@@ -1,14 +1,94 @@
 /**
- * Creating games: the first event is written straight to the database, after which the
- * GameStore takes over.
+ * Persistence: every game is a JSON snapshot in localStorage, saved on every change. No
+ * backend, no account, no network. Export and import move a game between devices.
  */
-import { appendEvent } from './db';
-import { forgetGameStore } from './gameStore';
+import { useEffect, useState } from 'react';
+import type { Game } from '../domain/game';
 
-export async function createGame(name: string): Promise<string> {
-  const id = crypto.randomUUID();
-  const createdAt = new Date().toISOString();
-  await appendEvent(id, 1, { type: 'GameCreated', id, name, createdAt }, { name, turn: 0, shipCount: 0, createdAt });
-  forgetGameStore(id);
-  return id;
+const KEY = 'sits.games.v2';
+
+export interface GameSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly turn: number;
+  readonly shipCount: number;
+  readonly updatedAt: string;
+}
+
+function readAll(): Game[] {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw) as unknown;
+    return Array.isArray(arr) ? (arr as Game[]).filter((g) => g && typeof g.id === 'string' && Array.isArray(g.ships)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeAll(games: readonly Game[]): void {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(games));
+  } catch {
+    // storage unavailable (private window, quota): the session still works in memory
+  }
+}
+
+export function listGames(): GameSummary[] {
+  return readAll()
+    .map((g) => ({ id: g.id, name: g.name, turn: g.turn, shipCount: g.ships.length, updatedAt: g.updatedAt }))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+export function loadGame(id: string): Game | null {
+  return readAll().find((g) => g.id === id) ?? null;
+}
+
+export function saveGame(game: Game): void {
+  const rest = readAll().filter((g) => g.id !== game.id);
+  writeAll([...rest, game]);
+}
+
+export function deleteGame(id: string): void {
+  writeAll(readAll().filter((g) => g.id !== id));
+}
+
+export function createGame(name: string): Game {
+  const now = new Date().toISOString();
+  const game: Game = { id: crypto.randomUUID(), name, createdAt: now, updatedAt: now, turn: 1, revealed: false, ships: [], history: [] };
+  saveGame(game);
+  return game;
+}
+
+export function exportGame(game: Game): string {
+  return JSON.stringify({ format: 'sits-ai-game', version: 2, game }, null, 2);
+}
+
+export function importGame(json: string): Game {
+  const parsed = JSON.parse(json) as { format?: string; version?: number; game?: Game };
+  if (parsed.format !== 'sits-ai-game' || parsed.version !== 2 || !parsed.game || !Array.isArray(parsed.game.ships)) throw new Error('not a SITS AI game export');
+  const now = new Date().toISOString();
+  const game: Game = { ...parsed.game, id: crypto.randomUUID(), name: `${parsed.game.name} (imported)`, updatedAt: now };
+  saveGame(game);
+  return game;
+}
+
+export interface UseGame {
+  readonly game: Game | null;
+  /** Apply a change; the result is saved. */
+  readonly update: (fn: (g: Game) => Game) => void;
+}
+
+export function useGame(id: string): UseGame {
+  const [game, setGame] = useState<Game | null>(() => loadGame(id));
+  useEffect(() => {
+    setGame(loadGame(id));
+  }, [id]);
+  useEffect(() => {
+    if (game) saveGame(game);
+  }, [game]);
+  return {
+    game,
+    update: (fn) => setGame((g) => (g ? { ...fn(g), updatedAt: new Date().toISOString() } : g)),
+  };
 }

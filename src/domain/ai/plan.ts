@@ -1,34 +1,22 @@
 /**
- * Planning one AI ship's turn (PLAN.md Phase 6): doctrine-driven candidate generation, scoring
- * with the Evaluator, selection with a little noise, and the order sheet in the book's notation
- * with a one-line rationale. Orders are sealed with a hash so the player can see the AI
- * committed before they plotted.
+ * Plotting the AI ships: every legal pivot/roll/thrust within the ship's ratings (as the BDA
+ * leaves them), scored by the Evaluator, the best kept. Deterministic for a game and turn, so
+ * revealing twice on the same reports gives the same orders.
  */
-import {
-  allThrustOptions,
-  facingAfter,
-  formatVelocity,
-  markers,
-  pivotOptions,
-  windowLabel,
-  windowsEqual,
-  type AvidWindow,
-  type Maneuver,
-  type RollDirection,
-} from '../geometry';
-import { maneuverLimits, shipClassOf, thrustLimit, type GameState, type Launch, type ShipState, type TurnOrders } from '../game';
-import { seededRng, type Rng } from '../combat';
-import { DOCTRINE_WEIGHTS, type Doctrine } from './doctrine';
+import { allThrustOptions, facingAfter, pivotOptions, windowLabel, type AvidWindow, type Maneuver } from '../geometry';
+import { isOutOfAction, maneuverRatings, shipClassOf, type Doctrine, type Game, type Orders, type Ship } from '../game';
+import { DOCTRINE_WEIGHTS } from './doctrine';
 import { Evaluator, type Candidate, type Evaluation } from './evaluate';
+import { hashSeed, seededRng, type Rng } from './rng';
 
 export interface AiPlan {
-  readonly orders: TurnOrders;
+  readonly orders: Orders;
   readonly evaluation: Evaluation;
   readonly candidatesConsidered: number;
   readonly doctrine: Doctrine;
 }
 
-/** Roll options tried with every pivot: none, one window either way, and the half roll that swaps sidewalls. */
+/** Roll options tried with every pivot: none, then up to three windows either way. */
 const ROLLS: readonly (Maneuver['roll'] | undefined)[] = [
   undefined,
   { windows: 1, direction: 'port' },
@@ -39,10 +27,9 @@ const ROLLS: readonly (Maneuver['roll'] | undefined)[] = [
   { windows: 3, direction: 'starboard' },
 ];
 
-/** Every legal pivot/roll/thrust combination within the ship's ratings, deduplicated. */
-export function generateCandidates(game: GameState, ship: ShipState, maxCandidates = 900, rng: Rng = seededRng(1)): Candidate[] {
-  const limits = maneuverLimits(game, ship);
-  const maxThrust = thrustLimit(game, ship);
+/** Every legal pivot/roll/thrust combination within the ratings, deduplicated and capped. */
+export function generateCandidates(ship: Ship, maxCandidates = 1200, rng: Rng = seededRng(1)): Candidate[] {
+  const limits = maneuverRatings(shipClassOf(ship), ship.bda);
   const pivots: (AvidWindow | undefined)[] = [undefined];
   const seen = new Set<string>();
   for (let n = 1; n <= limits.pivot; n++) {
@@ -60,92 +47,68 @@ export function generateCandidates(game: GameState, ship: ShipState, maxCandidat
       if (roll && roll.windows > limits.roll) continue;
       const maneuver: Maneuver = { ...(pivotTo ? { pivotTo } : {}), ...(roll ? { roll } : {}) };
       const facing = facingAfter(ship.attitude, maneuver, 0.5);
-      for (const plot of allThrustOptions(maxThrust, facing)) out.push({ maneuver, thrust: plot.delta, thrustUsed: plot.thrust });
+      for (const plot of allThrustOptions(limits.thrust, facing)) out.push({ maneuver, thrust: plot.delta, thrustUsed: plot.thrust });
     }
   }
   if (out.length <= maxCandidates) return out;
-  // keep every no-thrust and full-thrust option, sample the rest
-  const keep = out.filter((c) => c.thrustUsed === 0 || c.thrustUsed === maxThrust);
-  const rest = out.filter((c) => !(c.thrustUsed === 0 || c.thrustUsed === maxThrust));
-  for (let i = rest.length - 1; i > 0; i--) {
-    const j = Math.floor(rng.next() * (i + 1));
-    [rest[i], rest[j]] = [rest[j]!, rest[i]!];
-  }
+  // prefer the no-thrust and full-thrust options, sample the rest
+  const shuffle = <T,>(xs: T[]): T[] => {
+    for (let i = xs.length - 1; i > 0; i--) {
+      const j = Math.floor(rng.next() * (i + 1));
+      [xs[i], xs[j]] = [xs[j]!, xs[i]!];
+    }
+    return xs;
+  };
+  const isEdge = (c: Candidate): boolean => c.thrustUsed === 0 || c.thrustUsed === limits.thrust;
+  const keep = shuffle(out.filter(isEdge)).slice(0, maxCandidates);
+  const rest = shuffle(out.filter((c) => !isEdge(c)));
   return [...keep, ...rest.slice(0, Math.max(0, maxCandidates - keep.length))];
 }
 
-/** Plan a ship's turn. Deterministic for a given seed. */
-export function planOrders(game: GameState, shipId: string, doctrine: Doctrine = 'balanced', seed = 1): AiPlan {
-  const ship = game.ships[shipId];
-  if (!ship) throw new Error(`no ship ${shipId}`);
+/** Plan one ship's turn. */
+export function planOrders(game: Game, ship: Ship, seed = 1): AiPlan {
   const rng = seededRng(seed);
-  const weights = DOCTRINE_WEIGHTS[doctrine];
+  const weights = DOCTRINE_WEIGHTS[ship.doctrine];
   const evaluator = new Evaluator(game, ship, weights, () => rng.next());
-  const candidates = generateCandidates(game, ship, 900, seededRng(seed + 7));
+  const candidates = generateCandidates(ship, 1200, seededRng(seed + 7));
   let best: Evaluation | null = null;
   for (const c of candidates) {
     const e = evaluator.evaluate(c);
     if (!best || e.breakdown.total > best.breakdown.total) best = e;
   }
   if (!best) throw new Error('no candidates');
-  const launches = best.launches;
-  const orders: TurnOrders = {
+  const orders: Orders = {
     maneuver: best.candidate.maneuver,
     thrust: best.candidate.thrust,
     thrustUsed: best.candidate.thrustUsed,
-    launches,
-    rationale: rationaleFor(game, ship, best, doctrine),
+    launches: best.launches,
+    rationale: rationaleFor(evaluator, best, ship.doctrine),
   };
-  return { orders, evaluation: best, candidatesConsidered: candidates.length, doctrine };
+  return { orders, evaluation: best, candidatesConsidered: candidates.length, doctrine: ship.doctrine };
 }
 
-function rationaleFor(game: GameState, ship: ShipState, e: Evaluation, doctrine: Doctrine): string {
+function rationaleFor(evaluator: Evaluator, e: Evaluation, doctrine: Doctrine): string {
   const b = e.breakdown;
+  const c = e.candidate;
   const parts: string[] = [];
-  if (b.dealt > 0) parts.push(`expects to deal ≈${b.dealt.toFixed(1)} boxes`);
-  if (b.received > 0) parts.push(`take ≈${b.received.toFixed(1)}`);
+  if (b.dealt > 0) parts.push(`expects to deal ≈${Math.round(b.dealt)} damage`);
+  if (evaluator.hasFoes) parts.push(b.received > 0 ? `take ≈${Math.round(b.received)}` : 'take none');
+  if (b.wedgedSalvoes > 0) parts.push(`shows the wedge to ${b.wedgedSalvoes} incoming salvo${b.wedgedSalvoes === 1 ? '' : 'es'}`);
   if (e.eotRangeToNearest !== null) parts.push(`ends the turn at range ${e.eotRangeToNearest}`);
-  if (e.candidate.maneuver.pivotTo) parts.push('pivots to bring a mount to bear');
-  else if (e.candidate.maneuver.roll) parts.push('rolls to change the facing presented');
-  else parts.push('holds attitude to keep displacement');
-  const foeCount = game.shipOrder.filter((id) => game.ships[id] && !game.ships[id]!.destroyed && game.ships[id]!.side !== ship.side).length;
-  return `${doctrine}: ${parts.join(', ')}${foeCount === 0 ? ' — no enemy in play' : ''}.`;
+  if (c.maneuver.pivotTo && c.thrustUsed > 0) parts.push('pivots and thrusts, forfeiting displacement');
+  else if (c.maneuver.pivotTo) parts.push('pivots without thrust');
+  else if (c.thrustUsed > 0) parts.push('holds Forward to keep displacement');
+  else if (c.maneuver.roll) parts.push('only rolls');
+  else parts.push('holds attitude and drifts');
+  return `${doctrine}: ${parts.join(', ')}${evaluator.hasFoes ? '' : ' — no enemy in play'}.`;
 }
 
-/** The order sheet in the book's notation, one line per instruction. */
-export function orderSheet(game: GameState, ship: ShipState, orders: TurnOrders): string[] {
-  const cls = shipClassOf(game, ship);
-  const lines: string[] = [];
-  const m0 = markers(ship.attitude);
-  const m1 = markers(facingAfter(ship.attitude, orders.maneuver, 1) ? { forward: ship.attitude.forward, top: ship.attitude.top } : ship.attitude);
-  void m1;
-  if (orders.maneuver.pivotTo) {
-    const cost = pivotOptions(ship.attitude, 1).some((w) => windowsEqual(w, orders.maneuver.pivotTo!)) ? 1 : pivotOptions(ship.attitude, 2).some((w) => windowsEqual(w, orders.maneuver.pivotTo!)) ? 2 : 3;
-    lines.push(`Pivot ${cost} window${cost === 1 ? '' : 's'}: Forward from ${windowLabel(m0.forward)} to ${windowLabel(orders.maneuver.pivotTo)}.`);
-  } else {
-    lines.push(`No pivot: Forward stays ${windowLabel(m0.forward)}.`);
-  }
-  if (orders.maneuver.roll) lines.push(`Roll ${orders.maneuver.roll.windows} window${orders.maneuver.roll.windows === 1 ? '' : 's'} to ${orders.maneuver.roll.direction as RollDirection}.`);
-  else lines.push('No roll.');
-  const facing = facingAfter(ship.attitude, orders.maneuver, 0.5);
-  lines.push(orders.thrustUsed === 0 ? 'No thrust.' : `Thrust ${orders.thrustUsed} along the Midpoint facing ${windowLabel(facing)}: write ${formatVelocity(orders.thrust)} into the AVID arrows.`);
-  for (const l of orders.launches ?? []) {
-    const target = game.ships[l.targetId];
-    lines.push(`Launch from the ${cls.mounts[l.mount].name}: ${l.missiles} tubes at ${target?.name ?? l.targetId}, ${l.timings.map((t) => t[0]!.toUpperCase() + t.slice(1)).join(' + ')} salvo${l.timings.length === 1 ? '' : 'es'}.`);
-  }
-  if (!(orders.launches ?? []).length) lines.push('No missile launch.');
-  return lines;
-}
+/** The seed for a game and turn: the same reports always give the same reveal. */
+export const turnSeed = (game: Game): number => hashSeed(`${game.id}:${game.turn}`);
 
-/** FNV-1a hash of the orders, shown as the seal of commitment before the player plots. */
-export function sealOf(orders: TurnOrders): string {
-  const s = JSON.stringify({ m: orders.maneuver, t: orders.thrust, l: orders.launches ?? [] });
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h.toString(16).padStart(8, '0').toUpperCase();
+/** Plot every AI ship still in action and mark the turn revealed. */
+export function planAll(game: Game): Game {
+  const seed = turnSeed(game);
+  const ships = game.ships.map((s, i) => (s.controller === 'ai' && !isOutOfAction(s) ? { ...s, orders: planOrders(game, s, seed + i).orders } : { ...s, orders: null }));
+  return { ...game, ships, revealed: true };
 }
-
-export type { Launch };

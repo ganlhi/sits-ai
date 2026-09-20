@@ -1,10 +1,10 @@
 /**
- * A top-down sketch of the table: hexes around the ships, each ship with its altitude, its
- * Midpoint and End-of-Turn markers and the line it will travel. The origin hex is wherever the
- * centre of the physical map (the highlighted hex); positions are offsets from it.
+ * A top-down sketch of the table: hexes around the ships, each ship with its altitude, and for
+ * AI ships with revealed orders their Midpoint and End-of-Turn markers. The highlighted hex is
+ * the centre of the physical map; positions are offsets from it.
  */
-import { formatHexOffset, hexToPoint, pointToHex, type Cube, type Position } from '../../domain/geometry';
-import { shipMotion, type GameState, type ShipState, shipsOf } from '../../domain/game';
+import { hexToPoint, pointToHex, type Cube, type Position } from '../domain/geometry';
+import { isOutOfAction, shipMotion, type Game } from '../domain/game';
 
 const SCALE = 34; // px per hex width
 const R = 1 / Math.sqrt(3); // circumradius of a flat-top hex of width 1
@@ -18,22 +18,13 @@ function hexPath(cx: number, cy: number): string {
   return `M${pts.join('L')}Z`;
 }
 
-export interface HexMapProps {
-  readonly game: GameState;
-  readonly selected?: string | undefined;
-  readonly onSelect?: ((shipId: string) => void) | undefined;
-  readonly onHexClick?: ((hex: Cube) => void) | undefined;
-  /** Show markers (needs orders or drift). */
-  readonly showMarkers?: boolean;
-}
-
-export function HexMap({ game, selected, onSelect, onHexClick, showMarkers = true }: HexMapProps) {
-  const ships = shipsOf(game).filter((s) => !s.destroyed);
+export function HexMap({ game }: { game: Game }) {
+  const ships = game.ships;
   const points: { x: number; y: number }[] = [];
   const motions = new Map<string, ReturnType<typeof shipMotion>>();
   for (const s of ships) {
     points.push(hexToPoint(s.position.hex));
-    if (showMarkers) {
+    if (s.orders) {
       const m = shipMotion(s);
       motions.set(s.id, m);
       points.push(hexToPoint(m.midpoint.hex), hexToPoint(m.endOfTurn.hex));
@@ -46,7 +37,6 @@ export function HexMap({ game, selected, onSelect, onHexClick, showMarkers = tru
   const minY = Math.min(...points.map((p) => p.y)) - pad;
   const maxY = Math.max(...points.map((p) => p.y)) + pad;
 
-  // hexes covering the box
   const hexes: Cube[] = [];
   const seen = new Set<string>();
   for (let y = minY; y <= maxY; y += 0.5) {
@@ -71,13 +61,13 @@ export function HexMap({ game, selected, onSelect, onHexClick, showMarkers = tru
       {hexes.map((c) => {
         const p = hexToPoint(c);
         const origin = c.x === 0 && c.y === 0 && c.z === 0;
-        return <path key={`${c.x},${c.z}`} d={hexPath(p.x, -p.y)} className={`hex${origin ? ' hex-origin' : ''}`} onClick={onHexClick ? () => onHexClick(c) : undefined} />;
+        return <path key={`${c.x},${c.z}`} d={hexPath(p.x, -p.y)} className={`hex${origin ? ' hex-origin' : ''}`} />;
       })}
       {ships.map((s) => {
         const m = motions.get(s.id);
         const a = P(s.position);
         return (
-          <g key={s.id} className={`ship side-${s.side}${selected === s.id ? ' selected' : ''}`} onClick={onSelect ? () => onSelect(s.id) : undefined}>
+          <g key={s.id} className={`ship side-${s.side}${isOutOfAction(s) ? ' out' : ''}`}>
             {m && (
               <>
                 <line x1={a.x} y1={a.y} x2={P(m.endOfTurn).x} y2={P(m.endOfTurn).y} className="track-line-svg" />
@@ -97,13 +87,4 @@ export function HexMap({ game, selected, onSelect, onHexClick, showMarkers = tru
       })}
     </svg>
   );
-}
-
-/** A position in table language: offset from the centre hex, then altitude ("9A + 3B · alt 2"). */
-export function fmtPos(p: Position): string {
-  return `${formatHexOffset(p.hex)} · alt ${p.alt}`;
-}
-
-export function shipLabel(s: ShipState): string {
-  return `${s.name} (${s.side})`;
 }
