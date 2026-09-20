@@ -44,8 +44,9 @@ describe('Sample-class firing arcs', () => {
     expect(colours(LEVEL_ATTITUDE, blue(3, 'lower')).starboard).toBe('grey');
   });
 
-  it('a target 30° off the bow is covered by both the forward hammerhead (grey) and the starboard broadside (white)', () => {
-    expect(colours(LEVEL_ATTITUDE, yellow(1))).toEqual({ forward: 'grey', aft: 'black', port: 'black', starboard: 'white' });
+  it('a target 30° off the bow is covered by both the forward hammerhead and the starboard broadside, from behind the sidewall', () => {
+    expect(colours(LEVEL_ATTITUDE, yellow(1))).toEqual({ forward: 'grey', aft: 'black', port: 'black', starboard: 'grey' });
+    expect(colours(LEVEL_ATTITUDE, yellow(2))).toEqual({ forward: 'grey', aft: 'black', port: 'black', starboard: 'grey' });
   });
 
   it('nothing bears on a target straight up or in the green ring — the wedge is in the way', () => {

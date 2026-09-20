@@ -2,12 +2,12 @@
  * The ship library: classes the user has entered, kept in localStorage until Phase 4 brings
  * IndexedDB for game state. The built-in Sample class is always present and read-only.
  */
-import { SAMPLE_SD } from '../data/ships/sampleSd';
+import { BUILT_IN_SHIPS } from '../data/ships';
 import { validateShipClass, type ShipClass } from '../domain/ssd';
 
 const KEY = 'sits.ships.v1';
 
-export const BUILT_IN_SHIPS: readonly ShipClass[] = [SAMPLE_SD];
+export { BUILT_IN_SHIPS };
 
 export function isBuiltIn(id: string): boolean {
   return BUILT_IN_SHIPS.some((s) => s.id === id);

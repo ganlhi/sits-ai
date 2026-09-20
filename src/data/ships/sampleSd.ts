@@ -6,22 +6,11 @@
  * except the items marked [verify]. This is the app's test fixture and reference ship; real
  * classes come from Ship Book 1 (RULES.md §23).
  */
-import { buildArc, type ArcDiagram, type Mount } from '../../domain/geometry';
+import { standardArcs } from './arcs';
 import { parseHitLocationText, parseTrack, type MountSpec, type ShipClass, type WeaponSpec } from '../../domain/ssd';
 
-// Firing arcs (PDF p.13 small diagrams, p.38 enlarged Port Broadside).
-// [verify] the greyscale scan: the arc *shapes* are unambiguous; grey vs white was told apart
-// by luminance (hammerhead centre column ≈240, both 3×3 blocks ≈220, broadside equator ±60° ≈180).
-const broadsideArc = (m: Mount): ArcDiagram =>
-  buildArc(m, {
-    equator: { [-2]: 'white', [-1]: 'grey', 0: 'grey', 1: 'grey', 2: 'white' },
-    blue: { [-1]: 'grey', 0: 'grey', 1: 'grey' },
-  });
-const hammerheadArc = (m: Mount): ArcDiagram =>
-  buildArc(m, {
-    equator: { [-1]: 'grey', 0: 'white', 1: 'grey' },
-    blue: { [-1]: 'grey', 0: 'white', 1: 'grey' },
-  });
+// Firing arcs: the standard diagrams shared by every SSD (see arcs.ts).
+const arcs = standardArcs();
 
 const countdown = (n: number): string => Array.from({ length: n }, (_, i) => `${n - i}`).join(' ');
 
@@ -41,7 +30,7 @@ const hammerhead = (id: 'forward' | 'aft', name: string): MountSpec => ({
   ],
   decoys: null,
   gravLance: false,
-  arc: hammerheadArc(id),
+  arc: arcs[id],
 });
 
 const broadside = (id: 'port' | 'starboard', name: string): MountSpec => ({
@@ -59,7 +48,7 @@ const broadside = (id: 'port' | 'starboard', name: string): MountSpec => ({
   ],
   decoys: parseTrack('+4*10'),
   gravLance: true,
-  arc: broadsideArc(id),
+  arc: arcs[id],
 });
 
 const SIDEWALL = '-4 -4 -3 -3 -2 -2 -1 -1 -1 0 0 1 1 1 2 2 3 | 3';
@@ -140,7 +129,7 @@ export const SAMPLE_SD: ShipClass = {
   hitLocation: parseHitLocationText(HIT_LOCATION, 15, 3),
   notes: [
     'Transcribed from the SITS 2.0 core rulebook scan (PDF pp.13–14, 45).',
-    '[verify] firing-arc grey/white assignment (greyscale scan); the arc shapes are certain.',
+    'Firing arcs are the standard diagrams shared with the Ship Book cards (see arcs.ts).',
     '[verify] printed "Hull Boxes: 774" does not match any obvious count of the transcribed boxes; the app uses the actual box count.',
     'Magazine dots counted as 8×6 (hammerheads) and 10×12 (broadsides).',
   ].join('\n'),
