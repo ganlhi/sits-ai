@@ -51,6 +51,7 @@ export function AddShipPanel({ game, update }: { game: Game; update: (fn: (g: Ga
         effectiveness: FULL_EFFECTIVENESS,
         outOfAction: false,
         orders: null,
+        displacedEot: null,
       }),
     );
     setName('');

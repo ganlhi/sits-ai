@@ -5,7 +5,6 @@
  */
 import { applyManeuver, bearing, facingAfter, formatVelocity, impactWindow, markers, pivotCost, velocityIsZero, windowLabel, type Markers, type Position } from '../geometry';
 import { BAND_LABELS, MOUNT_NAMES, bandFor, formatPosition, shipById, shipMotion, type Game, type SalvoTiming, type Ship } from '../game';
-import { driftMotion } from './evaluate';
 
 export interface SalvoLine {
   readonly timing: SalvoTiming;
@@ -39,6 +38,20 @@ export interface OrderSheet {
 
 export const TIMING_LABEL: Readonly<Record<SalvoTiming, string>> = { early: 'Early', middle: 'Middle', late: 'Late' };
 
+/** What the AI shows after plotting (step 2): its markers, and whether thrust displaced the EoT one. Nothing about pivot, roll or thrust. */
+export interface DisplacementNotice {
+  readonly midpoint: Position;
+  readonly endOfTurn: Position;
+  /** How far the EoT marker was displaced, or null when it was not. */
+  readonly displacement: string | null;
+}
+
+export function displacementNotice(ship: Ship): DisplacementNotice | null {
+  if (!ship.orders) return null;
+  const m = shipMotion(ship);
+  return { midpoint: m.midpoint, endOfTurn: m.endOfTurn, displacement: velocityIsZero(m.displacement) ? null : formatVelocity(m.displacement) };
+}
+
 export function orderSheet(game: Game, ship: Ship): OrderSheet | null {
   const orders = ship.orders;
   if (!orders) return null;
@@ -56,10 +69,10 @@ export function orderSheet(game: Game, ship: Ship): OrderSheet | null {
   maneuver.push(orders.thrustUsed === 0 ? 'No thrust.' : `Thrust ${orders.thrustUsed} along the Midpoint facing ${windowLabel(facing)}: write ${formatVelocity(orders.thrust)} into the AVID arrows.`);
 
   const motion = shipMotion(ship);
-  const launches: LaunchSheet[] = orders.launches.map((l) => {
+  const launches: LaunchSheet[] = (orders.launches ?? []).map((l) => {
     const target = shipById(game, l.targetId);
     if (!target) return { mountName: MOUNT_NAMES[l.mount], targetName: l.targetId, salvoes: [] };
-    const tm = driftMotion(target);
+    const tm = shipMotion(target);
     const geometry = (timing: SalvoTiming, from: Position, to: Position): SalvoLine => {
       const b = bearing(from, to);
       const band = bandFor(ship.shipClass, b.range);

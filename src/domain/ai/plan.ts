@@ -1,10 +1,11 @@
 /**
  * Plotting the AI ships: every legal pivot/roll/thrust within the ship's current ratings,
- * scored by the Evaluator, the best kept. Deterministic for a game and turn, so revealing twice
- * on the same reports gives the same orders.
+ * scored by the Evaluator, the best kept (step 2). Shooting: with that plot fixed and every
+ * EoT marker displaced, the launches (step 3). Deterministic for a game and turn, so plotting
+ * twice on the same reports gives the same orders.
  */
 import { allThrustOptions, facingAfter, pivotOptions, windowLabel, type AvidWindow, type Maneuver } from '../geometry';
-import { isOutOfAction, type Game, type Orders, type Ship } from '../game';
+import { isOutOfAction, withHistory, type Game, type Launch, type Orders, type Ship } from '../game';
 import type { Posture } from './doctrine';
 import { Evaluator, type Candidate, type Evaluation } from './evaluate';
 import { hashSeed, seededRng, type Rng } from './rng';
@@ -65,7 +66,7 @@ export function generateCandidates(ship: Ship, maxCandidates = 1200, rng: Rng = 
   return [...keep, ...rest.slice(0, Math.max(0, maxCandidates - keep.length))];
 }
 
-/** Plan one ship's turn. */
+/** Plan one ship's movement. The evaluation's launches are what it expects to fire, not orders yet. */
 export function planOrders(game: Game, ship: Ship, seed = 1): AiPlan {
   const rng = seededRng(seed);
   const evaluator = new Evaluator(game, ship, () => rng.next());
@@ -80,7 +81,7 @@ export function planOrders(game: Game, ship: Ship, seed = 1): AiPlan {
     maneuver: best.candidate.maneuver,
     thrust: best.candidate.thrust,
     thrustUsed: best.candidate.thrustUsed,
-    launches: best.launches,
+    launches: null,
     rationale: rationaleFor(evaluator, best),
   };
   return { orders, evaluation: best, candidatesConsidered: candidates.length, posture: evaluator.posture };
@@ -110,9 +111,31 @@ function rationaleFor(evaluator: Evaluator, e: Evaluation): string {
 /** The seed for a game and turn: the same reports always give the same reveal. */
 export const turnSeed = (game: Game): number => hashSeed(`${game.id}:${game.turn}`);
 
-/** Plot every AI ship still in action and mark the turn revealed. */
-export function planAll(game: Game): Game {
+/**
+ * AI plotting (step 2): plot pivot, roll and thrust for every AI ship still in action, from the
+ * start-of-turn reports only. Every AI ship plots on the same game, so none sees another's plot.
+ */
+export function planMovement(game: Game): Game {
+  if (game.phase !== 'report') return game;
   const seed = turnSeed(game);
   const ships = game.ships.map((s, i) => (s.controller === 'ai' && !isOutOfAction(s) ? { ...s, orders: planOrders(game, s, seed + i).orders } : { ...s, orders: null }));
-  return { ...game, ships, revealed: true };
+  return { ...withHistory(game), phase: 'plotted', ships };
+}
+
+/** One ship's launches for its fixed plot, now that the EoT markers are known. */
+export function planLaunches(game: Game, ship: Ship): Launch[] {
+  const o = ship.orders;
+  if (!o) return [];
+  const evaluator = new Evaluator(game, ship, () => 0.5);
+  return evaluator.evaluate({ maneuver: o.maneuver, thrust: o.thrust, thrustUsed: o.thrustUsed }).launches;
+}
+
+/**
+ * AI shooting (step 3): with the plots fixed and every EoT marker displaced, choose each AI
+ * ship's launches. Only the launches are added; the plot stays as it was.
+ */
+export function planFire(game: Game): Game {
+  if (game.phase !== 'plotted') return game;
+  const ships = game.ships.map((s) => (s.orders ? { ...s, orders: { ...s.orders, launches: planLaunches(game, s) } } : s));
+  return { ...withHistory(game), phase: 'fired', ships };
 }

@@ -1,7 +1,8 @@
 /**
- * A top-down sketch of the table: hexes around the ships, each ship with its altitude, and for
- * AI ships with revealed orders their Midpoint and End-of-Turn markers. The highlighted hex is
- * the centre of the physical map; positions are offsets from it.
+ * A top-down sketch of the table: hexes around the ships, each ship with its altitude, and the
+ * Midpoint and End-of-Turn markers of AI ships that have plotted and of player ships with a
+ * displaced EoT. The highlighted hex is the centre of the physical map; positions are offsets
+ * from it.
  *
  * The view fits the ships until the player zooms (wheel, pinch) or pans (drag); "Fit" returns
  * to the automatic view. The view is the SVG viewBox itself, in pixels of the drawing.
@@ -76,7 +77,7 @@ export function HexMap({ game }: { game: Game }) {
   const motions = new Map<string, ReturnType<typeof shipMotion>>();
   for (const s of ships) {
     points.push(P(s.position));
-    if (s.orders) {
+    if (s.orders || s.displacedEot) {
       const m = shipMotion(s);
       motions.set(s.id, m);
       points.push(P(m.midpoint), P(m.endOfTurn));

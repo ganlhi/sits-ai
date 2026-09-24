@@ -10,11 +10,12 @@ how fast it goes, and roughly how hurt it is.
 
 ## The turn, at the table
 
-Every turn is three clicks and a report.
+Every turn follows the book's sequence (RULES.md §3): a report, the AI's plot, your displaced
+markers, the AI's launches.
 
 1. **Report the table.** For every ship, the card shows what the app expects — an AI ship
-   where its orders put it, a player ship drifted along its vectors — and you change what the
-   table disagrees with:
+   where its orders put it, a player ship at its EoT marker — and you change what the table
+   disagrees with:
    - **position**: hexes from the centre of the map, as two legs (`9 in A`, then `3 in B`) and
      an altitude;
    - **orientation**: the Forward and Top markers, in the AVID's own notation;
@@ -23,16 +24,22 @@ Every turn is three clicks and a report.
    - for each side (forward, aft, port, starboard): a **battle damage assessment** (undamaged,
      light, medium, heavy, crippled) and its **combat effectiveness** as a percentage;
    - **out of action** when the ship is destroyed or has struck: it drifts and is ignored.
-2. **Reveal AI orders.** Every AI ship gets an order sheet in the book's notation: pivot
-   (windows and target window), roll, thrust (with the vector changes to write into the arrows),
-   where its Midpoint and End-of-Turn markers go, the Forward and Top windows to set at the
-   Midpoint and at End of Turn, and each missile launch with its salvo card entries (range,
-   bearing, impact window, base MQL per salvo). You execute them on the table.
-3. **Next turn.** The app moves every AI ship to its End-of-Turn marker, finishes its pivot and
-   roll and adds its thrust to its vectors; player ships are drifted. Report again.
+2. **AI plotting** (step 2). Plot your own ships, then click: every AI ship plots pivot, roll
+   and thrust from the report, and shows only what the table would — its Midpoint and EoT
+   markers, and whether thrust displaced the EoT one. The report is locked from here on.
+   Then tick each of your ships whose EoT marker you displaced and say where it now is.
+3. **AI shooting** (step 3). The AI chooses its launches against the EoT markers as they now
+   stand — it knows where you displaced to, not how you pivoted or rolled — and shows its full
+   order sheets: pivot (windows and target window), roll, thrust (with the vector changes to
+   write into the arrows), the Forward and Top windows to set at the Midpoint and at End of
+   Turn, and each missile launch with its salvo card entries (range, bearing, impact window,
+   band per salvo). The plot is the one made at step 2; shooting never changes it.
+4. **Next turn.** The app moves every AI ship to its End-of-Turn marker, finishes its pivot and
+   roll and adds its thrust to its vectors; player ships move to their EoT markers. Report
+   again.
 
-*Undo turn* goes back to the start of the previous turn. *Shift the whole table* slides every
-ship by the same offset when the fight drifts towards a map edge.
+*Undo* walks back one step at a time: the launches, the plot, then the previous turn. *Shift
+the whole table* slides every ship by the same offset when the fight drifts towards a map edge.
 
 ## Ship classes
 
@@ -50,8 +57,9 @@ A ship copies its class when it is added, so editing the library never changes a
 
 ## How the opponent plots
 
-The AI never sees your plot: its orders depend only on the report, and it assumes every enemy
-drifts on its vectors and holds its attitude. For each of its ships it enumerates every legal
+The AI never sees your plot: its movement depends only on the report, and it assumes every
+enemy drifts on its vectors and holds its attitude. At shooting it also knows where every EoT
+marker ended up. For each of its ships it enumerates every legal
 pivot, roll and thrust within the ship's current ratings and scores each with a coarse model:
 
 - **One side per target.** Each side's targeting arc is the AVID window its pointer is in and
@@ -76,7 +84,7 @@ pivot, roll and thrust within the ship's current ratings and scores each with a 
 - **Doctrine** (balanced, missile duel, close to beam range, evade) is the personality on top:
   the *balanced* doctrine lets the posture set the range goal, the others keep their own. A
   little seeded noise keeps it from being predictable, but the same report always gives the
-  same reveal.
+  same plot.
 
 ## Layout
 

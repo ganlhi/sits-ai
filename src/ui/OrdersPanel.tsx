@@ -76,7 +76,7 @@ function Sheet({ game, ship }: { game: Game; ship: Ship }) {
                 ))}
               </tbody>
             </table>
-            <p className="note">Bearings assume the target drifts; if it displaced or thrusts, shoot the Middle and Late bearings from the table. Read the MQL off the ship's own card at that range.</p>
+            <p className="note">Bearings use the Midpoint and EoT markers as placed on the table. Read the MQL off the ship's own card at that range.</p>
           </div>
         ))
       )}

@@ -66,16 +66,30 @@ export interface Launch {
   readonly timings: readonly SalvoTiming[];
 }
 
-/** One AI ship's plot for the turn (step 2) and its launches (step 3). */
+/**
+ * One AI ship's plot for the turn (step 2) and its launches (step 3). The plot is fixed at
+ * the AI plotting step and never changes afterwards; the launches are added at the AI shooting
+ * step, once every EoT marker is displaced.
+ */
 export interface Orders {
   readonly maneuver: Maneuver;
   /** The vector change from thrust, as written in the grey areas of the AVID arrows. */
   readonly thrust: Velocity;
   readonly thrustUsed: number;
-  readonly launches: readonly Launch[];
-  /** The AI's one-line reason, for the order sheet. */
+  /** Null until the AI shooting step. */
+  readonly launches: readonly Launch[] | null;
+  /** The AI's one-line reason for the plot, for the order sheet. */
   readonly rationale: string;
 }
+
+/**
+ * Where the turn stands:
+ *   report   the player reports the table (start of turn);
+ *   plotted  the AI has plotted movement and shown only whether its EoT markers are displaced;
+ *            the player reports their own displaced EoT markers;
+ *   fired    the AI has chosen its launches; its full orders are shown.
+ */
+export type Phase = 'report' | 'plotted' | 'fired';
 
 export interface Ship {
   readonly id: ShipId;
@@ -96,14 +110,19 @@ export interface Ship {
   readonly effectiveness: Effectiveness;
   /** Destroyed, surrendered or otherwise out of the fight: drifts, neither fires nor is fired at. */
   readonly outOfAction: boolean;
-  /** The AI's plot for this turn, once revealed. Always null for player ships. */
+  /** The AI's plot for this turn, from the AI plotting step on. Always null for player ships. */
   readonly orders: Orders | null;
+  /**
+   * Where the player moved this ship's EoT marker at step 2, when thrust displaced it; null when
+   * it stays at position + vectors. Player ships only, reported in the plotted phase.
+   */
+  readonly displacedEot: Position | null;
 }
 
-/** What "Undo turn" restores. */
+/** What "Undo" restores: the state before the last step (AI plotting, AI shooting, next turn). */
 export interface Snapshot {
   readonly turn: number;
-  readonly revealed: boolean;
+  readonly phase: Phase;
   readonly ships: readonly Ship[];
 }
 
@@ -114,8 +133,7 @@ export interface Game {
   readonly updatedAt: string;
   /** The first turn is 1; ships may be added at any time. */
   readonly turn: number;
-  /** Whether the AI's orders for this turn have been plotted and shown. */
-  readonly revealed: boolean;
+  readonly phase: Phase;
   readonly ships: readonly Ship[];
   readonly history: readonly Snapshot[];
 }

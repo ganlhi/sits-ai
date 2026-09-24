@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { CUBE_ORIGIN, DIRECTION_CUBE, LEVEL_ATTITUDE, cubeScale, markers, position, velocity, windowLabel } from '../geometry';
+import { CUBE_ORIGIN, DIRECTION_CUBE, LEVEL_ATTITUDE, cubeAdd, cubeScale, markers, position, velocity, windowLabel } from '../geometry';
 import { power, salvoPower } from './power';
 import { BUILT_IN_CLASSES, bandFor, missileReach, ratingsOf, validateShipClass, type ShipClass } from './shipClass';
-import { addShip, nextTurn, removeShip, reportShip, shiftTable, undoTurn } from './turn';
+import { addShip, nextTurn, removeShip, reportDisplacement, reportShip, shiftTable, undoStep } from './turn';
 import { FULL_EFFECTIVENESS, UNDAMAGED, liveShips, overallDamage, uniformBda, type Game, type Ship } from './types';
 
 const SULTAN = BUILT_IN_CLASSES[0]!;
@@ -24,10 +24,11 @@ const ship = (id: string, extra: Partial<Ship> = {}): Ship => ({
   effectiveness: FULL_EFFECTIVENESS,
   outOfAction: false,
   orders: null,
+  displacedEot: null,
   ...extra,
 });
 
-const game = (ships: Ship[]): Game => ({ id: 'g', name: 'Test', createdAt: '2026-09-20T00:00:00Z', updatedAt: '2026-09-20T00:00:00Z', turn: 1, revealed: false, ships, history: [] });
+const game = (ships: Ship[]): Game => ({ id: 'g', name: 'Test', createdAt: '2026-09-20T00:00:00Z', updatedAt: '2026-09-20T00:00:00Z', turn: 1, phase: 'report', ships, history: [] });
 
 describe('ship classes', () => {
   it('built-ins validate and read their bands', () => {
@@ -67,12 +68,12 @@ describe('turn rollover', () => {
     orders: { maneuver: { roll: { windows: 2, direction: 'starboard' } }, thrust: velocity({ B: 2 }), thrustUsed: 2, launches: [], rationale: '' },
   });
   const player = ship('p', { side: 'green', shipClass: WARRIOR, ratings: ratingsOf(WARRIOR), position: position(cubeScale(DIRECTION_CUBE.A, 10), 1), velocity: velocity({ D: 1, '+': 1 }) });
-  const g = { ...game([ai, player]), revealed: true };
+  const g: Game = { ...game([ai, player]), phase: 'fired' };
 
   it('moves AI ships to their displaced EoT marker with new vectors and the finished roll; drifts the rest', () => {
     const n = nextTurn(g);
     expect(n.turn).toBe(2);
-    expect(n.revealed).toBe(false);
+    expect(n.phase).toBe('report');
     const a = n.ships[0]!;
     // 2 in A plus half of the 2 in B as displacement
     expect(a.position.hex).toEqual({ x: 1, y: 2, z: -3 });
@@ -88,21 +89,21 @@ describe('turn rollover', () => {
   it('undo restores the state before the rollover, orders included', () => {
     const n = nextTurn(g);
     expect(n.history).toHaveLength(1);
-    const back = undoTurn(n)!;
+    const back = undoStep(n)!;
     expect(back.turn).toBe(1);
-    expect(back.revealed).toBe(true);
+    expect(back.phase).toBe('fired');
     expect(back.ships).toEqual(g.ships);
-    expect(undoTurn(back)).toBeNull();
+    expect(undoStep(back)).toBeNull();
   });
 
   it('a report invalidates the plotted orders; a table shift does not', () => {
     const r = reportShip(g, 'p', { bda: { ...UNDAMAGED, port: 'light' }, ratings: { thrust: 2, pivot: 4, roll: 4 } });
-    expect(r.revealed).toBe(false);
+    expect(r.phase).toBe('report');
     expect(r.ships[0]!.orders).toBeNull();
     expect(r.ships[1]!.bda).toEqual({ forward: 'undamaged', aft: 'undamaged', port: 'light', starboard: 'undamaged' });
     expect(r.ships[1]!.ratings.thrust).toBe(2);
     const s = shiftTable(g, DIRECTION_CUBE.C, -1);
-    expect(s.revealed).toBe(true);
+    expect(s.phase).toBe('fired');
     expect(s.ships[0]!.position).toEqual(position(DIRECTION_CUBE.C, -1));
     expect(s.ships[1]!.position.alt).toBe(0);
   });
@@ -118,6 +119,24 @@ describe('turn rollover', () => {
     const c = reportShip(g, 'a', { outOfAction: true });
     expect(liveShips(c).map((s) => s.id)).toEqual(['p']);
     expect(nextTurn(c).ships[0]!.position.hex).toEqual(cubeScale(DIRECTION_CUBE.A, 2));
+  });
+
+  it("the player's displaced EoT marker: reported only after the AI plots, for their own ships; the ship ends the turn there", () => {
+    const eot = position(cubeScale(DIRECTION_CUBE.A, 7), 3);
+    const plotted: Game = { ...g, phase: 'plotted' };
+    expect(reportDisplacement({ ...g, phase: 'report' }, 'p', eot).ships[1]!.displacedEot).toBeNull();
+    expect(reportDisplacement(plotted, 'a', eot).ships[0]!.displacedEot).toBeNull(); // the AI's own come from its plot
+    const d = reportDisplacement(plotted, 'p', eot);
+    expect(d.ships[1]!.displacedEot).toEqual(eot);
+    expect(d.ships[0]!.orders).toEqual(ai.orders);
+    expect(shiftTable(d, DIRECTION_CUBE.C, 1).ships[1]!.displacedEot).toEqual({ hex: cubeAdd(eot.hex, DIRECTION_CUBE.C), alt: 4 });
+    const n = nextTurn(d);
+    expect(n.ships[1]!.position).toEqual(eot);
+    expect(n.ships[1]!.displacedEot).toBeNull();
+    // a correction to the start-of-turn report throws the plot and the displacements away
+    const back = reportShip(d, 'p', { name: 'P2' });
+    expect(back.phase).toBe('report');
+    expect(back.ships[1]!.displacedEot).toBeNull();
   });
 
   it('adds and removes ships', () => {

@@ -3,7 +3,7 @@
  * backend, no account, no network. Export and import move a game between devices.
  */
 import { useEffect, useState } from 'react';
-import { uniformBda, type Bda, type Game, type Ship } from '../domain/game';
+import { uniformBda, type Bda, type Game, type Phase, type Ship } from '../domain/game';
 
 const KEY = 'sits.games.v2';
 
@@ -16,17 +16,36 @@ export interface GameSummary {
 }
 
 /**
- * Games saved before BDA was reported per side carry one BDA for the whole ship, with
- * "crippled" doubling as destroyed: spread it to every side and lift out the out-of-action flag.
+ * Games saved by earlier versions:
+ *   - one BDA for the whole ship, with "crippled" doubling as destroyed: spread it to every
+ *     side and lift out the out-of-action flag;
+ *   - a single "revealed" step instead of plotting then shooting: revealed orders already
+ *     carry their launches, so they are the fired phase;
+ *   - no displaced EoT markers for player ships.
  */
+type OldShip = Omit<Ship, 'bda' | 'outOfAction' | 'displacedEot'> & { bda: Bda | Ship['bda']; outOfAction?: boolean; displacedEot?: Ship['displacedEot'] };
+type OldState = { phase?: Phase; revealed?: boolean };
+
 function upgradeShip(s: Ship): Ship {
-  const old = s as Omit<Ship, 'bda' | 'outOfAction'> & { bda: Bda | Ship['bda']; outOfAction?: boolean };
-  if (typeof old.bda !== 'string') return { ...s, outOfAction: old.outOfAction ?? false };
-  return { ...old, bda: uniformBda(old.bda), outOfAction: old.outOfAction ?? old.bda === 'crippled' };
+  const old = s as OldShip;
+  const displacedEot = old.displacedEot ?? null;
+  if (typeof old.bda !== 'string') return { ...s, outOfAction: old.outOfAction ?? false, displacedEot };
+  return { ...old, bda: uniformBda(old.bda), outOfAction: old.outOfAction ?? old.bda === 'crippled', displacedEot };
 }
 
+const upgradePhase = (x: OldState): Phase => x.phase ?? (x.revealed ? 'fired' : 'report');
+
 function upgradeGame(g: Game): Game {
-  return { ...g, ships: g.ships.map(upgradeShip), history: (g.history ?? []).map((h) => ({ ...h, ships: h.ships.map(upgradeShip) })) };
+  const { revealed: _, ...rest } = g as Game & OldState;
+  return {
+    ...rest,
+    phase: upgradePhase(g as Game & OldState),
+    ships: g.ships.map(upgradeShip),
+    history: (g.history ?? []).map((h) => {
+      const { revealed: _r, ...hr } = h as typeof h & OldState;
+      return { ...hr, phase: upgradePhase(h as typeof h & OldState), ships: h.ships.map(upgradeShip) };
+    }),
+  };
 }
 
 function readAll(): Game[] {
@@ -69,7 +88,7 @@ export function deleteGame(id: string): void {
 
 export function createGame(name: string): Game {
   const now = new Date().toISOString();
-  const game: Game = { id: crypto.randomUUID(), name, createdAt: now, updatedAt: now, turn: 1, revealed: false, ships: [], history: [] };
+  const game: Game = { id: crypto.randomUUID(), name, createdAt: now, updatedAt: now, turn: 1, phase: 'report', ships: [], history: [] };
   saveGame(game);
   return game;
 }

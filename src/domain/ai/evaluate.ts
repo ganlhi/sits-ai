@@ -2,7 +2,8 @@
  * Scoring a candidate plot: the fraction of the enemy we expect to destroy minus the fraction
  * of ourselves we expect to lose, plus positional terms. The enemy's orders are unknown at
  * plotting (it plots simultaneously), so every enemy is assumed to drift on its vectors and
- * hold its attitude.
+ * hold its attitude. At shooting the EoT markers are displaced and known: an enemy's EoT is
+ * where the table shows it, its pivot and roll are still unknown.
  *
  * The damage model is deliberately coarse — the real resolution happens on the table — but it
  * keeps the shape of the rules and of the report:
@@ -19,7 +20,6 @@
  */
 import {
   MOUNTS,
-  ZERO_VELOCITY,
   applyManeuver,
   bearing,
   dot,
@@ -38,7 +38,7 @@ import {
   type Vec3,
   type Velocity,
 } from '../geometry';
-import { BAND_QUALITY, BAND_SALVOES, BEAM_REACH, STANDARD_ARCS, bandFor, bdaIndex, beamPower, enemiesOf, facingFactor, power, salvoPower, type BandName, type Game, type Launch, type SalvoTiming, type Ship } from '../game';
+import { BAND_QUALITY, BAND_SALVOES, BEAM_REACH, STANDARD_ARCS, bandFor, bdaIndex, beamPower, enemiesOf, facingFactor, power, salvoPower, shipMotion, type BandName, type Game, type Launch, type SalvoTiming, type Ship } from '../game';
 import { effectiveWeights, goalRange, postureFor, type Posture, type Weights } from './doctrine';
 
 export interface Candidate {
@@ -69,7 +69,7 @@ export interface Evaluation {
   readonly eotRangeToNearest: number | null;
 }
 
-/** An enemy as the planner assumes it: drifting, attitude held. */
+/** An enemy as the planner assumes it: attitude held, drifting unless its EoT marker is known to be displaced. */
 interface Foe {
   readonly ship: Ship;
   readonly motion: TurnMotion;
@@ -104,9 +104,6 @@ export const BDA_EXPOSURE = 0.2;
  * heavily damaged side more than an undamaged one: nearer the core.
  */
 export const vulnerability = (target: Ship, facing: Mount): number => (2 - facingFactor(target, facing)) * (1 + BDA_EXPOSURE * bdaIndex(target.bda[facing]));
-
-/** Drift for one turn: no thrust, no maneuver. */
-export const driftMotion = (s: Ship): TurnMotion => planMotion({ position: s.position, velocity: s.velocity, halfDisplacements: s.halfDisplacements }, ZERO_VELOCITY, false);
 
 /** Expected damage (cost units) of one salvo from `shooter`'s mount at `target` holding `targetAttitude`, arriving from `impactDir`. */
 export function salvoDamage(shooter: Ship, mount: Mount, band: BandName, target: Ship, targetAttitude: Attitude, impactDir: Vec3): number {
@@ -192,7 +189,7 @@ export class Evaluator {
     private readonly noiseSource: () => number,
   ) {
     const enemies = enemiesOf(game, ship);
-    this.foes = enemies.map((s) => ({ ship: s, motion: driftMotion(s) }));
+    this.foes = enemies.map((s) => ({ ship: s, motion: shipMotion(s) }));
     this.posture = postureFor(ship, enemies);
     this.weights = effectiveWeights(ship.doctrine, this.posture);
     this.goal = goalRange(this.weights.rangeGoal, ship, enemies);

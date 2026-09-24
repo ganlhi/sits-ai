@@ -4,7 +4,8 @@ import { BUILT_IN_CLASSES, FULL_EFFECTIVENESS, UNDAMAGED, ratingsOf, uniformBda,
 import { effectiveWeights, goalRange, postureFor } from './doctrine';
 import { bestVolley, impactFacing, salvoDamage, vulnerability } from './evaluate';
 import { orderSheet, orderSheetText } from './orderSheet';
-import { generateCandidates, planAll, planOrders } from './plan';
+import { generateCandidates, planFire, planMovement, planOrders } from './plan';
+import { displacementNotice } from './orderSheet';
 
 const SULTAN = BUILT_IN_CLASSES[0]!;
 const WARRIOR = BUILT_IN_CLASSES[1]!;
@@ -26,10 +27,14 @@ const ship = (id: string, extra: Partial<Ship> = {}): Ship => ({
   effectiveness: FULL_EFFECTIVENESS,
   outOfAction: false,
   orders: null,
+  displacedEot: null,
   ...extra,
 });
 
-const game = (ships: Ship[]): Game => ({ id: 'g', name: 'Test', createdAt: '2026-09-20T00:00:00Z', updatedAt: '2026-09-20T00:00:00Z', turn: 1, revealed: false, ships, history: [] });
+const game = (ships: Ship[]): Game => ({ id: 'g', name: 'Test', createdAt: '2026-09-20T00:00:00Z', updatedAt: '2026-09-20T00:00:00Z', turn: 1, phase: 'report', ships, history: [] });
+
+/** AI plotting then AI shooting, the player reporting no displacement in between. */
+const playTurn = (g: Game): Game => planFire(planMovement(g));
 
 /** Sultan (AI, red) at the centre facing A; a Warrior (player, green) 8 hexes off in B, closing. */
 const warrior = ship('green', {
@@ -51,13 +56,14 @@ const legal = (g: Game, s: Ship): void => {
   expect(o.thrustUsed).toBeLessThanOrEqual(limits.thrust);
   const facing = facingAfter(s.attitude, o.maneuver, 0.5);
   expect(thrustOptions(o.thrustUsed, facing).some((p) => JSON.stringify(p.delta) === JSON.stringify(o.thrust))).toBe(true);
-  for (const l of o.launches) {
+  const launches = o.launches ?? [];
+  for (const l of launches) {
     expect(s.effectiveness[l.mount]).toBeGreaterThan(0);
     expect(l.timings.length).toBeGreaterThan(0);
     expect(g.ships.some((t) => t.id === l.targetId && t.side !== s.side)).toBe(true);
   }
   // one side per enemy
-  const targets = o.launches.map((l) => l.targetId);
+  const targets = launches.map((l) => l.targetId);
   expect(new Set(targets).size).toBe(targets.length);
 };
 
@@ -168,7 +174,8 @@ describe('planning', () => {
     expect(p1.orders).toEqual(p2.orders);
     expect(p1.candidatesConsidered).toBeGreaterThan(100);
     legal(duel, { ...duel.ships[0]!, orders: p1.orders });
-    expect(p1.orders.launches.length).toBeGreaterThan(0);
+    expect(p1.orders.launches).toBeNull();
+    expect(p1.evaluation.launches.length).toBeGreaterThan(0);
     expect(p1.posture).toBe('aggressive');
     expect(p1.orders.rationale).toMatch(/balanced, aggressive/);
   });
@@ -176,41 +183,43 @@ describe('planning', () => {
   it('launches only from facings that still fight', () => {
     const noBroadsides = { ...duel, ships: [{ ...duel.ships[0]!, effectiveness: { forward: 100, aft: 100, port: 0, starboard: 0 } }, warrior] };
     const p = planOrders(noBroadsides, noBroadsides.ships[0]!, 3);
-    for (const l of p.orders.launches) expect(['forward', 'aft']).toContain(l.mount);
+    for (const l of p.evaluation.launches) expect(['forward', 'aft']).toContain(l.mount);
     const disarmed = { ...duel, ships: [{ ...duel.ships[0]!, effectiveness: { forward: 0, aft: 0, port: 0, starboard: 0 } }, warrior] };
-    expect(planOrders(disarmed, disarmed.ships[0]!, 3).orders.launches).toEqual([]);
+    expect(planOrders(disarmed, disarmed.ships[0]!, 3).evaluation.launches).toEqual([]);
   });
 
   it('a ship with one dead broadside brings the other to bear', () => {
     // enemy dead abeam to starboard; the starboard broadside is gone, port is fresh
     const foe = ship('foe', { side: 'green', controller: 'player', shipClass: WARRIOR, ratings: ratingsOf(WARRIOR), position: position(cubeScale(DIRECTION_CUBE.C, 3), 0) });
     const me = ship('me', { effectiveness: { forward: 100, aft: 100, port: 100, starboard: 0 } });
-    const g = planAll(game([me, foe]));
+    const g = playTurn(game([me, foe]));
     const o = g.ships[0]!.orders!;
-    expect(o.launches.some((l) => l.mount === 'port') || o.maneuver.pivotTo !== undefined).toBe(true);
-    expect(o.launches.every((l) => l.mount !== 'starboard')).toBe(true);
+    expect(o.launches!.some((l) => l.mount === 'port') || o.maneuver.pivotTo !== undefined).toBe(true);
+    expect(o.launches!.every((l) => l.mount !== 'starboard')).toBe(true);
   });
 
-  it('planAll plots every AI ship in action, skips ships out of action and player ships, and marks the turn revealed', () => {
+  it('plotting plots every AI ship in action, skips ships out of action and player ships, and moves to the plotted phase', () => {
     const g = game([...duel.ships, ship('hulk', { outOfAction: true, position: position(cubeScale(DIRECTION_CUBE.D, 5), 0) })]);
-    const r = planAll(g);
-    expect(r.revealed).toBe(true);
+    const r = planMovement(g);
+    expect(r.phase).toBe('plotted');
+    expect(r.history).toHaveLength(1);
+    expect(planMovement(r)).toBe(r); // only once per turn
     expect(r.ships[0]!.orders).not.toBeNull();
     expect(r.ships[1]!.orders).toBeNull();
     expect(r.ships[2]!.orders).toBeNull();
-    expect(planAll(g)).toEqual(r);
+    expect(planMovement(g)).toEqual(r);
     legal(r, r.ships[0]!);
   });
 
   it('a hurt evader with lowered ratings still plots legally', () => {
     const g = { ...duel, ships: [{ ...duel.ships[0]!, bda: uniformBda('heavy'), doctrine: 'evade' as const, ratings: { thrust: 1, pivot: 2, roll: 1 } }, warrior] };
-    const r = planAll(g);
+    const r = playTurn(g);
     legal(r, r.ships[0]!);
     expect(r.ships[0]!.orders!.rationale).toMatch(/evade, defensive/);
   });
 
   it('the order sheet has the markers, both attitudes and a salvo line per launched salvo', () => {
-    const r = planAll(duel);
+    const r = playTurn(duel);
     const s = orderSheet(r, r.ships[0]!)!;
     expect(s.maneuver).toHaveLength(3);
     expect(s.maneuver[0]).toMatch(/pivot/i);
@@ -227,5 +236,40 @@ describe('planning', () => {
     expect(text).toContain('Midpoint marker at');
     expect(text).toContain('At End of Turn: Forward');
     expect(orderSheet(r, r.ships[1]!)).toBeNull();
+  });
+});
+
+describe('plotting, then shooting', () => {
+  it('plotting shows only the markers: the launches wait for the shooting step', () => {
+    const p = planMovement(duel);
+    const o = p.ships[0]!.orders!;
+    expect(o.launches).toBeNull();
+    const n = displacementNotice(p.ships[0]!)!;
+    expect(n.displacement === null).toBe(o.thrustUsed === 0 || o.maneuver.pivotTo !== undefined);
+    expect(displacementNotice(p.ships[1]!)).toBeNull();
+  });
+
+  it('shooting adds the launches and leaves the plot exactly as it was', () => {
+    const p = planMovement(duel);
+    const f = planFire(p);
+    expect(f.phase).toBe('fired');
+    expect(f.history).toHaveLength(2);
+    const before = p.ships[0]!.orders!;
+    const after = f.ships[0]!.orders!;
+    expect({ ...after, launches: null }).toEqual(before);
+    expect(after.launches!.length).toBeGreaterThan(0);
+    legal(f, f.ships[0]!);
+    expect(planFire(duel)).toBe(duel); // not before plotting
+    expect(planFire(f)).toBe(f); // only once
+  });
+
+  it("shooting aims at the player's EoT marker where it was displaced to", () => {
+    const p = planMovement(duel);
+    const plot = p.ships[0]!.orders!;
+    // the warrior reports its EoT marker displaced far out of missile range
+    const away = { ...p, ships: [p.ships[0]!, { ...p.ships[1]!, displacedEot: position(cubeScale(DIRECTION_CUBE.B, 45), 1) }] };
+    const f = planFire(away);
+    expect(f.ships[0]!.orders!.launches).toEqual([]);
+    expect({ ...f.ships[0]!.orders!, launches: null }).toEqual(plot);
   });
 });
