@@ -55,6 +55,18 @@ A class is the handful of numbers the opponent plots with, entered in the **Ship
 
 A ship copies its class when it is added, so editing the library never changes a running game.
 
+## AVID helper
+
+A table aid for your own ships, in the **AVID helper** tab. Give a ship's Forward and Top
+markers as they are now, tick *pivots* and say where Forward goes at End of Turn and at the
+Midpoint (the arc's own midpoint is proposed), and give the roll as "N windows to port or
+starboard". The tab lists, for the Midpoint and for End of Turn, every window that may hold the
+Top marker — three windows from the new Forward, best fit to the exact attitude first — and the
+Port, Starboard, Aft and Bottom windows that go with each. Where the exact Top falls between two
+windows (an odd roll halved, a pivot on a diagonal) both are listed; a Top on the spine between
+two green windows is called out. It warns when the Midpoint window is off the arc or not halfway,
+and, if you enter the ratings, when the plan costs more windows than the ship has.
+
 ## How the opponent plots
 
 The AI never sees your plot: its movement depends only on the report, and it assumes every
