@@ -57,8 +57,9 @@ A ship copies its class when it is added, so editing the library never changes a
 
 ## AVID helper
 
-A table aid for your own ships, in the **AVID helper** tab. Give a ship's Forward and Top
-markers as they are now, tick *pivots* and say where Forward goes at End of Turn, how many
+A table aid for your own ships, in the **AVID helper** tab, or from a game with the **AVID**
+button beside a ship's name, which opens it with that ship's markers and ratings filled in and a
+way back to the game. Give a ship's Forward and Top markers as they are now, tick *pivots* and say where Forward goes at End of Turn, how many
 windows the pivot costs and where Forward is at the Midpoint, and give the roll as "N windows to
 port or starboard". A pivot is a walk on the card from window to touching window, detours
 allowed, with at most one diagonal step (yellow to the blue window one column over); half of it

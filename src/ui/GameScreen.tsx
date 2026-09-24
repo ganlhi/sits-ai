@@ -1,5 +1,5 @@
 import { planFire, planMovement } from '../domain/ai';
-import { aiShips, isOutOfAction, nextTurn, undoStep, type Game } from '../domain/game';
+import { aiShips, isOutOfAction, nextTurn, undoStep, type Game, type Ship } from '../domain/game';
 import { useGame } from '../storage/games';
 import { AddShipPanel } from './AddShipPanel';
 import { DisplacementPanel } from './DisplacementPanel';
@@ -14,7 +14,7 @@ const UNDO_TITLE: Readonly<Record<Game['phase'], string>> = {
   fired: 'Take back the AI launches and return to the displacement report',
 };
 
-export function GameScreen({ gameId, onBack }: { gameId: string; onBack: () => void }) {
+export function GameScreen({ gameId, onBack, onAvidHelper }: { gameId: string; onBack: () => void; onAvidHelper: (ship: Ship) => void }) {
   const { game, update } = useGame(gameId);
   if (!game) return <p className="note">Game not found.</p>;
 
@@ -58,7 +58,7 @@ export function GameScreen({ gameId, onBack }: { gameId: string; onBack: () => v
             {game.ships.length === 0 ? (
               <p className="note">No ships yet — add them on the right.</p>
             ) : (
-              game.ships.map((s) => <ShipCard key={s.id} game={game} ship={s} update={update} locked={!reporting} />)
+              game.ships.map((s) => <ShipCard key={s.id} game={game} ship={s} update={update} locked={!reporting} onAvidHelper={onAvidHelper} />)
             )}
           </section>
 

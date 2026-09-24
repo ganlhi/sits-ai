@@ -62,9 +62,11 @@ export interface ShipCardProps {
   readonly update: (fn: (g: Game) => Game) => void;
   /** Read-only once the AI has plotted from this report. */
   readonly locked?: boolean;
+  /** Open the AVID helper with this ship's attitude and ratings; works even when the report is locked. */
+  readonly onAvidHelper?: (ship: Ship) => void;
 }
 
-export function ShipCard({ ship, update, locked = false }: ShipCardProps) {
+export function ShipCard({ ship, update, locked = false, onAvidHelper }: ShipCardProps) {
   const cls = ship.shipClass;
   const report = (patch: Parameters<typeof reportShip>[2]) => update((g) => reportShip(g, ship.id, patch));
 
@@ -84,6 +86,20 @@ export function ShipCard({ ship, update, locked = false }: ShipCardProps) {
       <fieldset className="plain" disabled={locked}>
         <header>
           <h3>{ship.name}</h3>
+          {onAvidHelper && (
+            // a link, not a button: the fieldset is disabled once the report is locked, and the helper must stay reachable
+            <a
+              className="button"
+              href="#avid"
+              title="Open the AVID helper with this ship's markers"
+              onClick={(e) => {
+                e.preventDefault();
+                onAvidHelper(ship);
+              }}
+            >
+              AVID
+            </a>
+          )}
           <span className="note">
             {cls.name} · cost {cls.baseCost}
           </span>

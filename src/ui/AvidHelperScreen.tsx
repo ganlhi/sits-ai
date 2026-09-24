@@ -25,6 +25,21 @@ import { AttitudeInput } from './AttitudeInput';
 const byKey = (key: string): AvidWindow | undefined => ALL_WINDOWS.find((w) => windowKey(w) === key);
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
 
+/** A ship the helper is opened for: its markers now and this turn's pivot and roll ratings. */
+export interface AvidHelperShip {
+  readonly name: string;
+  readonly attitude: Attitude;
+  readonly pivot: number;
+  readonly roll: number;
+}
+
+export interface AvidHelperScreenProps {
+  /** Pre-fills the current attitude and the ratings; the helper starts level with no ship. */
+  readonly ship?: AvidHelperShip;
+  /** Back to the game the helper was opened from. */
+  readonly onBack?: () => void;
+}
+
 function StepTable({ title, step, when }: { title: string; step: TraceStep; when: string }) {
   return (
     <section className="panel">
@@ -68,16 +83,16 @@ function StepTable({ title, step, when }: { title: string; step: TraceStep; when
   );
 }
 
-export function AvidHelperScreen() {
-  const [start, setStart] = useState<Attitude>(LEVEL_ATTITUDE);
+export function AvidHelperScreen({ ship, onBack }: AvidHelperScreenProps = {}) {
+  const [start, setStart] = useState<Attitude>(ship?.attitude ?? LEVEL_ATTITUDE);
   const [pivots, setPivots] = useState(false);
   const [eotForward, setEotForward] = useState<AvidWindow | null>(null);
   const [midForward, setMidForward] = useState<AvidWindow | null>(null);
   const [pivotWindowsText, setPivotWindowsText] = useState('');
   const [rollWindows, setRollWindows] = useState(0);
   const [rollDirection, setRollDirection] = useState<RollDirection>('starboard');
-  const [pivotRating, setPivotRating] = useState('');
-  const [rollRating, setRollRating] = useState('');
+  const [pivotRating, setPivotRating] = useState(ship ? String(ship.pivot) : '');
+  const [rollRating, setRollRating] = useState(ship ? String(ship.roll) : '');
 
   const m0 = markers(start);
   const end = pivots ? (eotForward ?? m0.forward) : null;
@@ -111,7 +126,19 @@ export function AvidHelperScreen() {
   return (
     <div className="games">
       <section className="panel">
-        <h2>AVID helper</h2>
+        <div className="row">
+          {onBack && (
+            <button type="button" onClick={onBack}>
+              ‹ Game
+            </button>
+          )}
+          <h2>AVID helper{ship ? ` — ${ship.name}` : ''}</h2>
+        </div>
+        {ship && (
+          <p className="note">
+            Markers and ratings as {ship.name} reports them at the start of the turn; changes here do not touch the game.
+          </p>
+        )}
         <p className="note">
           Set a ship's markers as they are now, say how many windows it pivots and where its Forward is at the Midpoint and at End of Turn, and how far it rolls; read off where the Top
           marker may go at each step. A pivot walks Forward from window to touching window, detours allowed, with at most one diagonal step; the roll turns about Forward. Half of each,
