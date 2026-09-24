@@ -1,7 +1,7 @@
 /** Put a ship on the table. Position, orientation, vectors and ratings can be corrected afterwards on its card. */
 import { useState } from 'react';
 import { LEVEL_ATTITUDE, velocity, type Attitude } from '../domain/geometry';
-import { CONTROLLERS, DOCTRINES, DOCTRINE_LABELS, FULL_EFFECTIVENESS, SIDES, addShip, ratingsOf, type Controller, type Doctrine, type Game, type Side } from '../domain/game';
+import { CONTROLLERS, DOCTRINES, DOCTRINE_LABELS, FULL_EFFECTIVENESS, UNDAMAGED, SIDES, addShip, ratingsOf, type Controller, type Doctrine, type Game, type Side } from '../domain/game';
 import { useClasses } from '../storage/shipClasses';
 import { AttitudeInput } from './AttitudeInput';
 import { HexOffsetInput, ZERO_DRAFT, draftToPosition, type OffsetDraft } from './HexOffsetInput';
@@ -47,8 +47,9 @@ export function AddShipPanel({ game, update }: { game: Game; update: (fn: (g: Ga
         velocity: v,
         attitude,
         halfDisplacements: [],
-        bda: 'undamaged',
+        bda: UNDAMAGED,
         effectiveness: FULL_EFFECTIVENESS,
+        outOfAction: false,
         orders: null,
       }),
     );

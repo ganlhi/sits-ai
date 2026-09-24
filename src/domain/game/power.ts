@@ -25,12 +25,17 @@ export const beamFactor = (range: number): number => (range <= 1 ? 0.6 : range =
 export const beamPower = (s: Ship, m: Mount, range: number): number => power(s) * MOUNT_WEIGHT[m] * facingFactor(s, m) * beamFactor(range);
 
 /**
- * The firing arcs every card seen so far shares: each mount bears ±60° around its marker on
- * the equator and both blue rows; hammerheads are unwalled dead ahead / astern.
+ * Each side's targeting arc: the window its pointer sits in and the eight around it — the
+ * pointer's equator window and its neighbours, and the three blue windows above and below.
+ * The four blocks tile the equator and the blue rows without overlapping, so a bearing is in at
+ * most one side's arc; above and below the blue rows is the wedge. Hammerheads are unwalled dead
+ * ahead / astern.
  */
+const SIDE_BLOCK = { [-1]: 'grey', 0: 'grey', 1: 'grey' } as const;
+const HAMMERHEAD_BLOCK = { [-1]: 'grey', 0: 'white', 1: 'grey' } as const;
 export const STANDARD_ARCS: Readonly<Record<Mount, ArcDiagram>> = {
-  forward: buildArc('forward', { equator: { [-2]: 'grey', [-1]: 'grey', 0: 'white', 1: 'grey', 2: 'grey' }, blue: { [-2]: 'grey', [-1]: 'grey', 0: 'white', 1: 'grey', 2: 'grey' } }),
-  aft: buildArc('aft', { equator: { [-2]: 'grey', [-1]: 'grey', 0: 'white', 1: 'grey', 2: 'grey' }, blue: { [-2]: 'grey', [-1]: 'grey', 0: 'white', 1: 'grey', 2: 'grey' } }),
-  port: buildArc('port', { equator: { [-2]: 'grey', [-1]: 'grey', 0: 'grey', 1: 'grey', 2: 'grey' }, blue: { [-2]: 'grey', [-1]: 'grey', 0: 'grey', 1: 'grey', 2: 'grey' } }),
-  starboard: buildArc('starboard', { equator: { [-2]: 'grey', [-1]: 'grey', 0: 'grey', 1: 'grey', 2: 'grey' }, blue: { [-2]: 'grey', [-1]: 'grey', 0: 'grey', 1: 'grey', 2: 'grey' } }),
+  forward: buildArc('forward', { equator: HAMMERHEAD_BLOCK, blue: HAMMERHEAD_BLOCK }),
+  aft: buildArc('aft', { equator: HAMMERHEAD_BLOCK, blue: HAMMERHEAD_BLOCK }),
+  port: buildArc('port', { equator: SIDE_BLOCK, blue: SIDE_BLOCK }),
+  starboard: buildArc('starboard', { equator: SIDE_BLOCK, blue: SIDE_BLOCK }),
 };

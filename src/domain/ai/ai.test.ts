@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { CUBE_ORIGIN, DIRECTION_CUBE, LEVEL_ATTITUDE, attitudeFromWindows, cubeScale, facingAfter, pivotCost, position, purple, thrustOptions, velocity, windowDirection, yellow } from '../geometry';
-import { BUILT_IN_CLASSES, FULL_EFFECTIVENESS, ratingsOf, type Game, type Ship } from '../game';
+import { CUBE_ORIGIN, DIRECTION_CUBE, LEVEL_ATTITUDE, attitudeFromWindows, bearing, cubeScale, facingAfter, pivotCost, position, purple, thrustOptions, velocity, windowDirection, yellow } from '../geometry';
+import { BUILT_IN_CLASSES, FULL_EFFECTIVENESS, UNDAMAGED, ratingsOf, uniformBda, type Game, type Ship } from '../game';
 import { effectiveWeights, goalRange, postureFor } from './doctrine';
-import { impactFacing, salvoDamage } from './evaluate';
+import { bestVolley, impactFacing, salvoDamage, vulnerability } from './evaluate';
 import { orderSheet, orderSheetText } from './orderSheet';
 import { generateCandidates, planAll, planOrders } from './plan';
 
@@ -22,8 +22,9 @@ const ship = (id: string, extra: Partial<Ship> = {}): Ship => ({
   velocity: velocity({}),
   attitude: LEVEL_ATTITUDE,
   halfDisplacements: [],
-  bda: 'undamaged',
+  bda: UNDAMAGED,
   effectiveness: FULL_EFFECTIVENESS,
+  outOfAction: false,
   orders: null,
   ...extra,
 });
@@ -55,6 +56,9 @@ const legal = (g: Game, s: Ship): void => {
     expect(l.timings.length).toBeGreaterThan(0);
     expect(g.ships.some((t) => t.id === l.targetId && t.side !== s.side)).toBe(true);
   }
+  // one side per enemy
+  const targets = o.launches.map((l) => l.targetId);
+  expect(new Set(targets).size).toBe(targets.length);
 };
 
 describe('posture', () => {
@@ -63,18 +67,26 @@ describe('posture', () => {
     const w = { ...warrior, side: 'green' as const };
     expect(postureFor(sultan, [w])).toBe('aggressive');
     expect(postureFor(w, [sultan])).toBe('cautious');
-    expect(postureFor({ ...w, bda: 'heavy' }, [sultan])).toBe('defensive');
-    expect(postureFor({ ...sultan, bda: 'heavy' }, [{ ...w, bda: 'undamaged' }])).toBe('defensive');
-    expect(postureFor({ ...sultan, bda: 'medium' }, [{ ...w, bda: 'medium' }])).toBe('aggressive');
+    expect(postureFor({ ...w, bda: uniformBda('heavy') }, [sultan])).toBe('defensive');
+    expect(postureFor({ ...sultan, bda: uniformBda('heavy') }, [{ ...w, bda: uniformBda('undamaged') }])).toBe('defensive');
+    expect(postureFor({ ...sultan, bda: uniformBda('medium') }, [{ ...w, bda: uniformBda('medium') }])).toBe('aggressive');
     expect(postureFor(sultan, [])).toBe('balanced');
+  });
+
+  it('damage is read per side: one wrecked side hurts less than the whole ship wrecked', () => {
+    const a = ship('a');
+    const b = ship('b', { side: 'green' });
+    expect(postureFor({ ...a, bda: { ...UNDAMAGED, starboard: 'light' } }, [b])).toBe('balanced');
+    expect(postureFor({ ...a, bda: { ...UNDAMAGED, starboard: 'heavy' } }, [b])).toBe('cautious');
+    expect(postureFor(a, [{ ...b, bda: { ...UNDAMAGED, port: 'crippled' } }])).toBe('aggressive');
   });
 
   it('evenly matched ships stay balanced until one is hurt', () => {
     const a = ship('a');
     const b = ship('b', { side: 'green' });
     expect(postureFor(a, [b])).toBe('balanced');
-    expect(postureFor(a, [{ ...b, bda: 'medium' }])).toBe('aggressive');
-    expect(postureFor({ ...a, bda: 'medium' }, [b])).toBe('cautious');
+    expect(postureFor(a, [{ ...b, bda: uniformBda('medium') }])).toBe('aggressive');
+    expect(postureFor({ ...a, bda: uniformBda('medium') }, [b])).toBe('cautious');
   });
 
   it('the posture reshapes the weights and the range goal', () => {
@@ -111,6 +123,32 @@ describe('evaluator pieces', () => {
     expect(wedged).toBeLessThan(full);
     expect(salvoDamage(s, 'port', 'long', t, LEVEL_ATTITUDE, fromStarboard)).toBeLessThan(salvoDamage(s, 'port', 'medium', t, LEVEL_ATTITUDE, fromStarboard));
     expect(salvoDamage({ ...s, effectiveness: { ...FULL_EFFECTIVENESS, port: 0 } }, 'port', 'short', t, LEVEL_ATTITUDE, fromStarboard)).toBe(0);
+  });
+
+  it("a hit is worth more on a side the BDA already reports damaged, and only that side's", () => {
+    const s = ship('s');
+    const t = ship('t', { side: 'green' });
+    const fromStarboard = windowDirection(yellow(3));
+    const hurt = { ...t, bda: { ...UNDAMAGED, starboard: 'heavy' as const } };
+    expect(vulnerability(hurt, 'starboard')).toBeGreaterThan(vulnerability(t, 'starboard'));
+    expect(vulnerability(hurt, 'port')).toBe(vulnerability(t, 'port'));
+    expect(salvoDamage(s, 'port', 'short', hurt, LEVEL_ATTITUDE, fromStarboard)).toBeGreaterThan(salvoDamage(s, 'port', 'short', t, LEVEL_ATTITUDE, fromStarboard));
+    expect(salvoDamage(s, 'port', 'short', hurt, LEVEL_ATTITUDE, windowDirection(yellow(9)))).toBe(salvoDamage(s, 'port', 'short', t, LEVEL_ATTITUDE, windowDirection(yellow(9))));
+  });
+
+  it('only one side targets a given enemy in a turn, even when the bearings cross from one arc to the next', () => {
+    const s = ship('s');
+    const t = ship('t', { side: 'green' });
+    const at = { early: LEVEL_ATTITUDE, middle: LEVEL_ATTITUDE, late: LEVEL_ATTITUDE };
+    // Early and Middle on the bow (forward hammerhead), Late abeam to starboard (starboard broadside)
+    const geometry = { early: bearing(position(CUBE_ORIGIN, 0), position(cubeScale(DIRECTION_CUBE.A, 4), 0)), middle: bearing(position(CUBE_ORIGIN, 0), position(cubeScale(DIRECTION_CUBE.A, 3), 0)), late: bearing(position(CUBE_ORIGIN, 0), position(cubeScale(DIRECTION_CUBE.C, 3), 0)) };
+    const v = bestVolley(s, LEVEL_ATTITUDE, 'short', t, at, geometry)!;
+    expect(['forward', 'starboard']).toContain(v.mount);
+    expect(v.timings).toEqual(v.mount === 'forward' ? ['early', 'middle'] : ['late']);
+    const fwdOnly = bestVolley({ ...s, effectiveness: { ...FULL_EFFECTIVENESS, starboard: 0 } }, LEVEL_ATTITUDE, 'short', t, at, geometry)!;
+    expect(fwdOnly).toMatchObject({ mount: 'forward', timings: ['early', 'middle'] });
+    const stbdOnly = bestVolley({ ...s, effectiveness: { ...FULL_EFFECTIVENESS, forward: 0 } }, LEVEL_ATTITUDE, 'short', t, at, geometry)!;
+    expect(stbdOnly).toMatchObject({ mount: 'starboard', timings: ['late'] });
   });
 
   it('candidate generation respects the current ratings', () => {
@@ -153,8 +191,8 @@ describe('planning', () => {
     expect(o.launches.every((l) => l.mount !== 'starboard')).toBe(true);
   });
 
-  it('planAll plots every AI ship in action, skips crippled and player ships, and marks the turn revealed', () => {
-    const g = game([...duel.ships, ship('hulk', { bda: 'crippled', position: position(cubeScale(DIRECTION_CUBE.D, 5), 0) })]);
+  it('planAll plots every AI ship in action, skips ships out of action and player ships, and marks the turn revealed', () => {
+    const g = game([...duel.ships, ship('hulk', { outOfAction: true, position: position(cubeScale(DIRECTION_CUBE.D, 5), 0) })]);
     const r = planAll(g);
     expect(r.revealed).toBe(true);
     expect(r.ships[0]!.orders).not.toBeNull();
@@ -165,7 +203,7 @@ describe('planning', () => {
   });
 
   it('a hurt evader with lowered ratings still plots legally', () => {
-    const g = { ...duel, ships: [{ ...duel.ships[0]!, bda: 'heavy' as const, doctrine: 'evade' as const, ratings: { thrust: 1, pivot: 2, roll: 1 } }, warrior] };
+    const g = { ...duel, ships: [{ ...duel.ships[0]!, bda: uniformBda('heavy'), doctrine: 'evade' as const, ratings: { thrust: 1, pivot: 2, roll: 1 } }, warrior] };
     const r = planAll(g);
     legal(r, r.ships[0]!);
     expect(r.ships[0]!.orders!.rationale).toMatch(/evade, defensive/);

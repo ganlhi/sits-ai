@@ -8,7 +8,7 @@
  * Damage terms are fractions of a fleet's cost destroyed in the turn, so a weight of 1 on a
  * term worth 0.1 is "ten percent of the enemy".
  */
-import { bdaIndex, missileReach, power, type Doctrine, type Ship } from '../game';
+import { missileReach, overallDamage, power, type Doctrine, type Ship } from '../game';
 
 /** Where the ship wants to end the turn, in terms of its own bands. */
 export type RangeGoal = 'close' | 'medium' | 'long' | 'open' | null;
@@ -60,8 +60,8 @@ export const POSTURE_MODIFIERS: Readonly<Record<Posture, PostureModifier>> = {
 export function postureFor(me: Ship, enemies: readonly Ship[]): Posture {
   if (!enemies.length) return 'balanced';
   const enemyPower = enemies.reduce((s, e) => s + power(e), 0);
-  const enemyHurt = enemies.reduce((s, e) => s + bdaIndex(e.bda) * power(e), 0) / enemyPower;
-  const myHurt = bdaIndex(me.bda);
+  const enemyHurt = enemies.reduce((s, e) => s + overallDamage(e.bda) * power(e), 0) / enemyPower;
+  const myHurt = overallDamage(me.bda);
   const advantage = (enemyHurt - myHurt) * 0.75 + Math.log2(power(me) / enemyPower);
   if (myHurt >= 3 && advantage < 1) return 'defensive';
   if (advantage >= 0.75) return 'aggressive';

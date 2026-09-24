@@ -3,10 +3,10 @@
  *
  * The player keeps the real bookkeeping on the table (SSDs, salvo cards, dice). At the start
  * of every turn they report, per ship, what the table shows — position, orientation, vectors,
- * a battle damage assessment, the ratings left, and a rough combat effectiveness per facing —
+ * a battle damage assessment and a rough combat effectiveness per facing, the ratings left —
  * and the app plots the AI ships from that. Nothing else is tracked.
  */
-import { formatHexOffset, type Attitude, type Maneuver, type Mount, type Position, type VectorDirection, type Velocity } from '../geometry';
+import { MOUNTS, formatHexOffset, type Attitude, type Maneuver, type Mount, type Position, type VectorDirection, type Velocity } from '../geometry';
 import type { Ratings, SalvoTiming, ShipClass } from './shipClass';
 
 export type Side = 'red' | 'green';
@@ -27,7 +27,7 @@ export const DOCTRINE_LABELS: Readonly<Record<Doctrine, string>> = {
   evade: 'Evade — open the range, interpose the wedge, survive',
 };
 
-/** Battle Damage Assessment: the player's one-word summary of a ship's SSD. */
+/** Battle Damage Assessment: the player's one-word summary of one side of a ship's SSD. */
 export type Bda = 'undamaged' | 'light' | 'medium' | 'heavy' | 'crippled';
 export const BDA_LEVELS: readonly Bda[] = ['undamaged', 'light', 'medium', 'heavy', 'crippled'];
 export const BDA_LABELS: Readonly<Record<Bda, string>> = {
@@ -35,9 +35,23 @@ export const BDA_LABELS: Readonly<Record<Bda, string>> = {
   light: 'Light damage',
   medium: 'Medium damage',
   heavy: 'Heavy damage',
-  crippled: 'Crippled / destroyed',
+  crippled: 'Crippled',
 };
 export const bdaIndex = (b: Bda): number => BDA_LEVELS.indexOf(b);
+
+/** A BDA for each side: the hit location tables are read by the side a hit lands on (C5.11). */
+export type SideBda = Readonly<Record<Mount, Bda>>;
+export const UNDAMAGED: SideBda = { forward: 'undamaged', aft: 'undamaged', port: 'undamaged', starboard: 'undamaged' };
+export const uniformBda = (b: Bda): SideBda => ({ forward: b, aft: b, port: b, starboard: b });
+
+/**
+ * How hurt the whole ship is, on the 0 (undamaged) to 4 (crippled) scale: halfway between the
+ * worst side and the average, so one wrecked side counts but does not stand for the ship.
+ */
+export function overallDamage(b: SideBda): number {
+  const idx = MOUNTS.map((m) => bdaIndex(b[m]));
+  return (Math.max(...idx) + idx.reduce((s, i) => s + i, 0) / idx.length) / 2;
+}
 
 /** Combat effectiveness of each facing, in percent: launchers, beams, active defenses and sidewall together. */
 export type Effectiveness = Readonly<Record<Mount, number>>;
@@ -78,8 +92,10 @@ export interface Ship {
   readonly attitude: Attitude;
   /** Half hexes of displacement carried over (AI ships only; the app computes their motion). */
   readonly halfDisplacements: readonly VectorDirection[];
-  readonly bda: Bda;
+  readonly bda: SideBda;
   readonly effectiveness: Effectiveness;
+  /** Destroyed, surrendered or otherwise out of the fight: drifts, neither fires nor is fired at. */
+  readonly outOfAction: boolean;
   /** The AI's plot for this turn, once revealed. Always null for player ships. */
   readonly orders: Orders | null;
 }
@@ -104,7 +120,7 @@ export interface Game {
   readonly history: readonly Snapshot[];
 }
 
-export const isOutOfAction = (s: Ship): boolean => s.bda === 'crippled';
+export const isOutOfAction = (s: Ship): boolean => s.outOfAction;
 export const liveShips = (g: Game): Ship[] => g.ships.filter((s) => !isOutOfAction(s));
 export const enemiesOf = (g: Game, s: Ship): Ship[] => liveShips(g).filter((e) => e.side !== s.side);
 export const aiShips = (g: Game): Ship[] => g.ships.filter((s) => s.controller === 'ai');

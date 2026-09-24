@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LEVEL_ATTITUDE, attitude, roll } from './attitude';
-import { blue, green, purple, windowDirection, yellow, type AvidWindow } from './avid';
+import { ALL_WINDOWS, blue, green, purple, windowDirection, yellow, type AvidWindow } from './avid';
 import { MOUNTS, bodyWindow, mountArcColour, nearestFacing, wedgeCovers } from './firingArc';
 import { fromAzPitch } from './vec3';
 import { STANDARD_ARCS as SAMPLE_ARCS } from '../game/power';
@@ -42,9 +42,17 @@ describe('Sample-class firing arcs', () => {
     expect(colours(LEVEL_ATTITUDE, blue(3, 'lower')).starboard).toBe('grey');
   });
 
-  it('a target 30° off the bow is covered by both the forward hammerhead and the starboard broadside, from behind the sidewall', () => {
-    expect(colours(LEVEL_ATTITUDE, yellow(1))).toEqual({ forward: 'grey', aft: 'black', port: 'black', starboard: 'grey' });
-    expect(colours(LEVEL_ATTITUDE, yellow(2))).toEqual({ forward: 'grey', aft: 'black', port: 'black', starboard: 'grey' });
+  it("each side's arc is its pointer's window and the eight around it; the four never overlap", () => {
+    expect(colours(LEVEL_ATTITUDE, yellow(1))).toEqual({ forward: 'grey', aft: 'black', port: 'black', starboard: 'black' });
+    expect(colours(LEVEL_ATTITUDE, yellow(2))).toEqual({ forward: 'black', aft: 'black', port: 'black', starboard: 'grey' });
+    expect(colours(LEVEL_ATTITUDE, blue(11, 'upper')).forward).toBe('grey');
+    expect(colours(LEVEL_ATTITUDE, blue(4, 'lower')).starboard).toBe('grey');
+    for (const w of ALL_WINDOWS) {
+      const bearing = Object.values(colours(LEVEL_ATTITUDE, w)).filter((c) => c !== 'black');
+      expect(bearing.length).toBeLessThanOrEqual(1);
+    }
+    // 4 sides × 9 windows: the equator and both blue rows, nothing else
+    expect(ALL_WINDOWS.filter((w) => Object.values(colours(LEVEL_ATTITUDE, w)).some((c) => c !== 'black'))).toHaveLength(36);
   });
 
   it('nothing bears on a target straight up or in the green ring — the wedge is in the way', () => {

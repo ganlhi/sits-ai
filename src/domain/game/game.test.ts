@@ -3,7 +3,7 @@ import { CUBE_ORIGIN, DIRECTION_CUBE, LEVEL_ATTITUDE, cubeScale, markers, positi
 import { power, salvoPower } from './power';
 import { BUILT_IN_CLASSES, bandFor, missileReach, ratingsOf, validateShipClass, type ShipClass } from './shipClass';
 import { addShip, nextTurn, removeShip, reportShip, shiftTable, undoTurn } from './turn';
-import { FULL_EFFECTIVENESS, liveShips, type Game, type Ship } from './types';
+import { FULL_EFFECTIVENESS, UNDAMAGED, liveShips, overallDamage, uniformBda, type Game, type Ship } from './types';
 
 const SULTAN = BUILT_IN_CLASSES[0]!;
 const WARRIOR = BUILT_IN_CLASSES[1]!;
@@ -20,8 +20,9 @@ const ship = (id: string, extra: Partial<Ship> = {}): Ship => ({
   velocity: velocity({}),
   attitude: LEVEL_ATTITUDE,
   halfDisplacements: [],
-  bda: 'undamaged',
+  bda: UNDAMAGED,
   effectiveness: FULL_EFFECTIVENESS,
+  outOfAction: false,
   orders: null,
   ...extra,
 });
@@ -95,10 +96,10 @@ describe('turn rollover', () => {
   });
 
   it('a report invalidates the plotted orders; a table shift does not', () => {
-    const r = reportShip(g, 'p', { bda: 'light', ratings: { thrust: 2, pivot: 4, roll: 4 } });
+    const r = reportShip(g, 'p', { bda: { ...UNDAMAGED, port: 'light' }, ratings: { thrust: 2, pivot: 4, roll: 4 } });
     expect(r.revealed).toBe(false);
     expect(r.ships[0]!.orders).toBeNull();
-    expect(r.ships[1]!.bda).toBe('light');
+    expect(r.ships[1]!.bda).toEqual({ forward: 'undamaged', aft: 'undamaged', port: 'light', starboard: 'undamaged' });
     expect(r.ships[1]!.ratings.thrust).toBe(2);
     const s = shiftTable(g, DIRECTION_CUBE.C, -1);
     expect(s.revealed).toBe(true);
@@ -106,8 +107,15 @@ describe('turn rollover', () => {
     expect(s.ships[1]!.position.alt).toBe(0);
   });
 
-  it('crippled ships drop out of the fight but keep drifting', () => {
-    const c = reportShip(g, 'a', { bda: 'crippled' });
+  it('overall damage weighs the worst side and the average', () => {
+    expect(overallDamage(UNDAMAGED)).toBe(0);
+    expect(overallDamage(uniformBda('heavy'))).toBe(3);
+    expect(overallDamage({ ...UNDAMAGED, port: 'crippled' })).toBe(2.5);
+  });
+
+  it('ships out of action drop out of the fight but keep drifting; a crippled side alone does not', () => {
+    expect(liveShips(reportShip(g, 'a', { bda: { ...UNDAMAGED, port: 'crippled' } })).map((s) => s.id)).toEqual(['a', 'p']);
+    const c = reportShip(g, 'a', { outOfAction: true });
     expect(liveShips(c).map((s) => s.id)).toEqual(['p']);
     expect(nextTurn(c).ships[0]!.position.hex).toEqual(cubeScale(DIRECTION_CUBE.A, 2));
   });

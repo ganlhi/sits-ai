@@ -10,6 +10,7 @@ import {
   CONTROLLERS,
   DOCTRINES,
   DOCTRINE_LABELS,
+  MOUNT_NAMES,
   MOUNT_SHORT,
   isOutOfAction,
   removeShip,
@@ -141,46 +142,50 @@ export function ShipCard({ ship, update }: ShipCardProps) {
           {!velValid && <span className="field-msg">whole numbers, 0 or more</span>}
         </div>
         <div>
-          <div className="field">
-            <label>Battle damage assessment</label>
-            <select value={ship.bda} onChange={(e) => report({ bda: e.target.value as Bda })}>
-              {BDA_LEVELS.map((b) => (
-                <option key={b} value={b}>
-                  {BDA_LABELS[b]}
-                </option>
-              ))}
-            </select>
+          <div className="label note">Ratings this turn</div>
+          <div className="row">
+            {RATING_KEYS.map((k) => (
+              <label key={k} className="vec-input pct" title={`class maximum ${maxOf[k]}`}>
+                {k}
+                <input
+                  value={rat[k]}
+                  inputMode="numeric"
+                  aria-label={`${k} rating`}
+                  onChange={(e) => {
+                    const d = { ...rat, [k]: e.target.value };
+                    setRat(d);
+                    const parsed = draftToRatings(d);
+                    if (parsed && !ratingsEqual(parsed, ship.ratings)) report({ ratings: parsed });
+                  }}
+                />
+              </label>
+            ))}
           </div>
-          <div className="row" style={{ alignItems: 'flex-start' }}>
-            <div>
-              <div className="label note">Ratings this turn</div>
-              <div className="row">
-                {RATING_KEYS.map((k) => (
-                  <label key={k} className="vec-input pct" title={`class maximum ${maxOf[k]}`}>
-                    {k}
+          {!ratValid && <span className="field-msg">whole numbers, 0 or more</span>}
+          <table className="list side-table">
+            <thead>
+              <tr>
+                <th>Side</th>
+                <th>Battle damage assessment</th>
+                <th>Effectiveness (%)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {MOUNTS.map((m) => (
+                <tr key={m}>
+                  <td title={MOUNT_NAMES[m]}>{MOUNT_SHORT[m]}</td>
+                  <td>
+                    <select value={ship.bda[m]} aria-label={`${m} battle damage assessment`} onChange={(e) => report({ bda: { ...ship.bda, [m]: e.target.value as Bda } })}>
+                      {BDA_LEVELS.map((b) => (
+                        <option key={b} value={b}>
+                          {BDA_LABELS[b]}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
                     <input
-                      value={rat[k]}
-                      inputMode="numeric"
-                      aria-label={`${k} rating`}
-                      onChange={(e) => {
-                        const d = { ...rat, [k]: e.target.value };
-                        setRat(d);
-                        const parsed = draftToRatings(d);
-                        if (parsed && !ratingsEqual(parsed, ship.ratings)) report({ ratings: parsed });
-                      }}
-                    />
-                  </label>
-                ))}
-              </div>
-              {!ratValid && <span className="field-msg">whole numbers, 0 or more</span>}
-            </div>
-            <div>
-              <div className="label note">Effectiveness per facing (%)</div>
-              <div className="row">
-                {MOUNTS.map((m) => (
-                  <label key={m} className="vec-input pct">
-                    {MOUNT_SHORT[m]}
-                    <input
+                      className="pct"
                       value={eff[m]}
                       inputMode="numeric"
                       aria-label={`${m} effectiveness`}
@@ -191,12 +196,16 @@ export function ShipCard({ ship, update }: ShipCardProps) {
                         if (parsed && !effEquals(parsed, ship.effectiveness)) report({ effectiveness: parsed });
                       }}
                     />
-                  </label>
-                ))}
-              </div>
-              {!effValid && <span className="field-msg">0 to 100</span>}
-            </div>
-          </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!effValid && <span className="field-msg">effectiveness: 0 to 100</span>}
+          <label className="row">
+            <input type="checkbox" checked={ship.outOfAction} onChange={(e) => report({ outOfAction: e.target.checked })} />
+            Out of action (destroyed, surrendered): drifts, neither fires nor is fired at
+          </label>
         </div>
       </div>
     </article>

@@ -3,7 +3,7 @@
  * backend, no account, no network. Export and import move a game between devices.
  */
 import { useEffect, useState } from 'react';
-import type { Game } from '../domain/game';
+import { uniformBda, type Bda, type Game, type Ship } from '../domain/game';
 
 const KEY = 'sits.games.v2';
 
@@ -15,12 +15,26 @@ export interface GameSummary {
   readonly updatedAt: string;
 }
 
+/**
+ * Games saved before BDA was reported per side carry one BDA for the whole ship, with
+ * "crippled" doubling as destroyed: spread it to every side and lift out the out-of-action flag.
+ */
+function upgradeShip(s: Ship): Ship {
+  const old = s as Omit<Ship, 'bda' | 'outOfAction'> & { bda: Bda | Ship['bda']; outOfAction?: boolean };
+  if (typeof old.bda !== 'string') return { ...s, outOfAction: old.outOfAction ?? false };
+  return { ...old, bda: uniformBda(old.bda), outOfAction: old.outOfAction ?? old.bda === 'crippled' };
+}
+
+function upgradeGame(g: Game): Game {
+  return { ...g, ships: g.ships.map(upgradeShip), history: (g.history ?? []).map((h) => ({ ...h, ships: h.ships.map(upgradeShip) })) };
+}
+
 function readAll(): Game[] {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return [];
     const arr = JSON.parse(raw) as unknown;
-    return Array.isArray(arr) ? (arr as Game[]).filter((g) => g && typeof g.id === 'string' && Array.isArray(g.ships)) : [];
+    return Array.isArray(arr) ? (arr as Game[]).filter((g) => g && typeof g.id === 'string' && Array.isArray(g.ships)).map(upgradeGame) : [];
   } catch {
     return [];
   }
@@ -68,7 +82,7 @@ export function importGame(json: string): Game {
   const parsed = JSON.parse(json) as { format?: string; version?: number; game?: Game };
   if (parsed.format !== 'sits-ai-game' || parsed.version !== 2 || !parsed.game || !Array.isArray(parsed.game.ships)) throw new Error('not a SITS AI game export');
   const now = new Date().toISOString();
-  const game: Game = { ...parsed.game, id: crypto.randomUUID(), name: `${parsed.game.name} (imported)`, updatedAt: now };
+  const game: Game = { ...upgradeGame(parsed.game), id: crypto.randomUUID(), name: `${parsed.game.name} (imported)`, updatedAt: now };
   saveGame(game);
   return game;
 }

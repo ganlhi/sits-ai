@@ -19,9 +19,10 @@ Every turn is three clicks and a report.
      an altitude;
    - **orientation**: the Forward and Top markers, in the AVID's own notation;
    - **vectors**: the eight arrows around the AVID;
-   - **battle damage assessment**: undamaged, light, medium, heavy, crippled/destroyed;
    - **ratings this turn**: thrust, pivot and roll as the SSD now gives them;
-   - **combat effectiveness** of each facing (forward, aft, port, starboard), as a percentage.
+   - for each side (forward, aft, port, starboard): a **battle damage assessment** (undamaged,
+     light, medium, heavy, crippled) and its **combat effectiveness** as a percentage;
+   - **out of action** when the ship is destroyed or has struck: it drifts and is ignored.
 2. **Reveal AI orders.** Every AI ship gets an order sheet in the book's notation: pivot
    (windows and target window), roll, thrust (with the vector changes to write into the arrows),
    where its Midpoint and End-of-Turn markers go, the Forward and Top windows to set at the
@@ -53,14 +54,20 @@ The AI never sees your plot: its orders depend only on the report, and it assume
 drifts on its vectors and holds its attitude. For each of its ships it enumerates every legal
 pivot, roll and thrust within the ship's current ratings and scores each with a coarse model:
 
+- **One side per target.** Each side's targeting arc is the AVID window its pointer is in and
+  the eight windows around it. A ship targets a given enemy through one side a turn: all its
+  salvoes at that enemy come from the side that serves best over the Early, Middle and Late
+  bearings, and it expects the enemy to do the same against it. The four arcs tile the
+  equator and the blue rows without overlapping; above and below them is the wedge.
 - **Firepower from cost.** A broadside is worth the ship's cost, a hammerhead a third of it,
   scaled by the reported effectiveness of that facing. Salvoes follow the band (three at short
   range, one at long) and fade with it; what gets through falls with the target facing's
   effectiveness (its countermissiles and point defense) and is cut hard by the wedge. Beams hit
   automatically within three hexes, never through the wedge.
-- **Orientation from the facings.** A weak facing of the enemy is worth more to hit, so the AI
-  brings its strongest broadside to bear on it; a weak facing of its own is worth more to hide,
-  so it rolls it away from the incoming bearings or puts the wedge there.
+- **Orientation from the facings.** A weak or damaged facing of the enemy — low effectiveness
+  or a bad BDA on that side — is worth more to hit, so the AI brings its strongest broadside to
+  bear on it; a weak or damaged facing of its own is worth more to hide, so it rolls it away
+  from the incoming bearings or puts the wedge there.
 - **Posture from the odds.** Own damage against the enemy's, and own cost against theirs: a
   fresh battlecruiser facing a hurt cruiser presses (closes, weighs damage dealt more); the
   cruiser is cautious (holds its long band); hurt, it turns defensive (opens the range beyond

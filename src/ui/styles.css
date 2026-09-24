@@ -344,6 +344,20 @@ table.list th {
   width: 56px;
 }
 
+.side-table {
+  margin-top: 8px;
+}
+
+.side-table td {
+  vertical-align: middle;
+}
+
+.side-table input.pct {
+  width: 56px;
+  padding: 4px 2px;
+  text-align: center;
+}
+
 /* orders */
 .ai-panel {
   border-color: color-mix(in srgb, var(--accent) 50%, var(--line));

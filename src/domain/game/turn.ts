@@ -21,7 +21,7 @@ export function invalidateOrders(g: Game): Game {
   return { ...g, revealed: false, ships: g.ships.map((s) => (s.orders ? { ...s, orders: null } : s)) };
 }
 
-export type ShipReport = Partial<Pick<Ship, 'name' | 'position' | 'velocity' | 'attitude' | 'bda' | 'ratings' | 'effectiveness' | 'doctrine' | 'controller'>>;
+export type ShipReport = Partial<Pick<Ship, 'name' | 'position' | 'velocity' | 'attitude' | 'bda' | 'outOfAction' | 'ratings' | 'effectiveness' | 'doctrine' | 'controller'>>;
 
 /** The player corrects a ship to what is actually on the table. */
 export function reportShip(g: Game, id: ShipId, report: ShipReport): Game {

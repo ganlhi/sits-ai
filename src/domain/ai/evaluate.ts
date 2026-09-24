@@ -7,9 +7,13 @@
  * The damage model is deliberately coarse — the real resolution happens on the table — but it
  * keeps the shape of the rules and of the report:
  *   - salvoes by End-of-Turn range band, bearings by salvo timing (RULES.md §3 step 3, §11);
+ *   - a ship targets one enemy through one side a turn: all its salvoes at that enemy come from
+ *     the one side whose arc (the pointer's window and the eight around it) serves it best, and
+ *     the enemy is assumed to do the same against us;
  *   - what gets through falls with the band and with the target facing's effectiveness (its
  *     countermissiles and point defense), and is cut hard by the wedge (§12);
- *   - a weak facing is worth more to hit, and a weak facing of ours is worth more to hide;
+ *   - a weak or damaged facing is worth more to hit, and one of ours is worth more to hide: the
+ *     side's effectiveness and its own BDA both count;
  *   - beams hit automatically in arc within three hexes, never through the wedge, harder into
  *     an unwalled bow or stern (§14.3).
  */
@@ -34,7 +38,7 @@ import {
   type Vec3,
   type Velocity,
 } from '../geometry';
-import { BAND_QUALITY, BAND_SALVOES, BEAM_REACH, STANDARD_ARCS, bandFor, beamPower, enemiesOf, facingFactor, power, salvoPower, type BandName, type Game, type Launch, type SalvoTiming, type Ship } from '../game';
+import { BAND_QUALITY, BAND_SALVOES, BEAM_REACH, STANDARD_ARCS, bandFor, bdaIndex, beamPower, enemiesOf, facingFactor, power, salvoPower, type BandName, type Game, type Launch, type SalvoTiming, type Ship } from '../game';
 import { effectiveWeights, goalRange, postureFor, type Posture, type Weights } from './doctrine';
 
 export interface Candidate {
@@ -92,8 +96,14 @@ export function impactFacing(a: Attitude, dir: Vec3): Mount {
   return best;
 }
 
-/** A facing at 40 % is worth more to hit than one at 100 %: weaker sidewall, fewer defenses, nearer the core. */
-export const vulnerability = (target: Ship, facing: Mount): number => 2 - facingFactor(target, facing);
+/** How much more a hit is worth per BDA level of the side it lands on: armour and structure already gone there. */
+export const BDA_EXPOSURE = 0.2;
+
+/**
+ * A facing at 40 % is worth more to hit than one at 100 %: weaker sidewall, fewer defenses; a
+ * heavily damaged side more than an undamaged one: nearer the core.
+ */
+export const vulnerability = (target: Ship, facing: Mount): number => (2 - facingFactor(target, facing)) * (1 + BDA_EXPOSURE * bdaIndex(target.bda[facing]));
 
 /** Drift for one turn: no thrust, no maneuver. */
 export const driftMotion = (s: Ship): TurnMotion => planMotion({ position: s.position, velocity: s.velocity, halfDisplacements: s.halfDisplacements }, ZERO_VELOCITY, false);
@@ -116,9 +126,55 @@ export function beamDamage(shooter: Ship, shooterAttitude: Attitude, target: Shi
   if (wedgeCovers(targetAttitude, impactDir)) return 0;
   const facing = impactFacing(targetAttitude, impactDir);
   const aspect = facing === 'port' || facing === 'starboard' ? 1 : HAMMERHEAD_BEAM_BONUS;
-  let total = 0;
-  for (const m of MOUNTS) if (mountArcColour(STANDARD_ARCS, m, shooterAttitude, dir) !== 'black') total += beamPower(shooter, m, b.range);
-  return total * aspect * vulnerability(target, facing);
+  // one side at a time: the best side with the target in its arc
+  let best = 0;
+  for (const m of MOUNTS) if (mountArcColour(STANDARD_ARCS, m, shooterAttitude, dir) !== 'black') best = Math.max(best, beamPower(shooter, m, b.range));
+  return best * aspect * vulnerability(target, facing);
+}
+
+/** The salvoes one side would put into a target this turn. */
+export interface SideVolley {
+  readonly mount: Mount;
+  readonly timings: SalvoTiming[];
+  readonly damage: number;
+  /** Salvoes that would arrive through the target's wedge. */
+  readonly wedged: number;
+}
+
+/**
+ * The shooter's best side against one target for the turn. Missiles launch at step 3 with the
+ * shooter's current attitude; each salvo is shot on its timing's bearing and lands on the
+ * target's attitude at that impact. Only one side may target a given enemy, so the others'
+ * salvoes do not add up.
+ */
+export function bestVolley(
+  shooter: Ship,
+  shooterAttitude: Attitude,
+  band: BandName,
+  target: Ship,
+  targetAttitudeAt: Readonly<Record<SalvoTiming, Attitude>>,
+  geometry: Readonly<Record<SalvoTiming, Bearing>>,
+): SideVolley | null {
+  let best: SideVolley | null = null;
+  for (const m of MOUNTS) {
+    if (facingFactor(shooter, m) <= 0) continue;
+    const timings: SalvoTiming[] = [];
+    let damage = 0;
+    let wedged = 0;
+    for (const t of BAND_SALVOES[band]) {
+      const g = geometry[t];
+      if (!g.window) continue;
+      if (mountArcColour(STANDARD_ARCS, m, shooterAttitude, windowDirection(g.window)) === 'black') continue;
+      const impactDir = windowDirection(impactWindow(g)!);
+      const dmg = salvoDamage(shooter, m, band, target, targetAttitudeAt[t], impactDir);
+      if (dmg <= 0) continue;
+      timings.push(t);
+      damage += dmg;
+      if (wedgeCovers(targetAttitudeAt[t], impactDir)) wedged += 1;
+    }
+    if (timings.length && (!best || damage > best.damage)) best = { mount: m, timings, damage, wedged };
+  }
+  return best;
 }
 
 /** One planning session for one ship. */
@@ -173,7 +229,7 @@ export class Evaluator {
       const nextRange = bearing(nextMe, positionPlus(foe.motion.endOfTurn, foe.motion.newVelocity)).range;
       nearestNext = nearestNext === null ? nextRange : Math.min(nearestNext, nextRange);
 
-      // --- my missiles: launched at step 3 with my current attitude, salvoes by EoT range
+      // --- my missiles: launched at step 3 with my current attitude, salvoes by EoT range, one side per target
       const band = bandFor(me.shipClass, eotRange);
       if (band) {
         const geometry: Record<SalvoTiming, Bearing> = {
@@ -181,28 +237,19 @@ export class Evaluator {
           middle: bearing(me.position, foe.motion.midpoint),
           late: bearing(motion.midpoint, foe.motion.endOfTurn),
         };
-        const perMount = new Map<Mount, SalvoTiming[]>();
-        for (const t of BAND_SALVOES[band]) {
-          const g = geometry[t];
-          if (!g.window) continue;
-          const impactDir = windowDirection(impactWindow(g)!);
-          for (const m of MOUNTS) {
-            if (facingFactor(me, m) <= 0) continue;
-            if (mountArcColour(STANDARD_ARCS, m, me.attitude, windowDirection(g.window)) === 'black') continue;
-            const dmg = salvoDamage(me, m, band, foe.ship, foe.ship.attitude, impactDir);
-            if (dmg <= 0) continue;
-            dealt += dmg;
-            perMount.set(m, [...(perMount.get(m) ?? []), t]);
-          }
+        const foeAttitude: Record<SalvoTiming, Attitude> = { early: foe.ship.attitude, middle: foe.ship.attitude, late: foe.ship.attitude };
+        const volley = bestVolley(me, me.attitude, band, foe.ship, foeAttitude, geometry);
+        if (volley) {
+          dealt += volley.damage;
+          launches.push({ mount: volley.mount, targetId: foe.ship.id, timings: volley.timings });
         }
-        for (const [m, timings] of perMount) launches.push({ mount: m, targetId: foe.ship.id, timings });
       }
 
       // --- my beams at the two beam impacts: Midpoint (half maneuver) and End of Turn
       dealt += beamDamage(me, attMid, foe.ship, foe.ship.attitude, bearing(motion.midpoint, foe.motion.midpoint));
       dealt += beamDamage(me, attEot, foe.ship, foe.ship.attitude, eotB);
 
-      // --- the enemy's missiles at me, with my attitude at each impact time
+      // --- the enemy's missiles at me, from its best side, with my attitude at each impact time
       const foeBand = bandFor(foe.ship.shipClass, eotRange);
       if (foeBand) {
         const geometry: Record<SalvoTiming, Bearing> = {
@@ -210,21 +257,11 @@ export class Evaluator {
           middle: bearing(foe.ship.position, motion.midpoint),
           late: bearing(foe.motion.midpoint, motion.endOfTurn),
         };
-        for (const t of BAND_SALVOES[foeBand]) {
-          const g = geometry[t];
-          if (!g.window) continue;
-          const impactDir = windowDirection(impactWindow(g)!);
-          let incoming = false;
-          for (const m of MOUNTS) {
-            if (facingFactor(foe.ship, m) <= 0) continue;
-            if (mountArcColour(STANDARD_ARCS, m, foe.ship.attitude, windowDirection(g.window)) === 'black') continue;
-            incoming = true;
-            received += salvoDamage(foe.ship, m, foeBand, me, myAttitudeAt[t], impactDir);
-          }
-          if (incoming && wedgeCovers(myAttitudeAt[t], impactDir)) {
-            positional += w.wedge;
-            wedgedSalvoes += 1;
-          }
+        const volley = bestVolley(foe.ship, foe.ship.attitude, foeBand, me, myAttitudeAt, geometry);
+        if (volley) {
+          received += volley.damage;
+          positional += w.wedge * volley.wedged;
+          wedgedSalvoes += volley.wedged;
         }
       }
       // --- the enemy's beams at me
