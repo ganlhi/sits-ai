@@ -1,18 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import * as fc from 'fast-check';
-import {
-  LEVEL_ATTITUDE,
-  applyManeuver,
-  attitude,
-  attitudeFromWindows,
-  facingAfter,
-  markers,
-  pivotCost,
-  pivotOptions,
-  pivotTowards,
-  roll,
-} from './attitude';
+import { LEVEL_ATTITUDE, attitude, attitudeFromWindows, markers, pivotTowards, roll } from './attitude';
 import { blue, green, purple, windowDistance, windowLabel, windowsEqual, yellow } from './avid';
+import { cornerNeighbours, edgeNeighbours } from './avidGraph';
 import { UP, fromAzPitch, rotateAbout, vec3 } from './vec3';
 
 const label = (w: { ring: string }) => windowLabel(w as never);
@@ -67,11 +57,10 @@ describe('orientation markers — Annex Z1.0 worked examples (RULES.md §5.2)', 
 });
 
 describe('pivots and rolls (RULES.md §6)', () => {
-  it('a one-window pivot from level flight lands Forward in an adjacent window and costs one window', () => {
-    for (const target of pivotOptions(LEVEL_ATTITUDE, 1)) {
+  it('a one-step pivot from level flight lands Forward in the touching window', () => {
+    for (const target of [...edgeNeighbours(yellow(0)), ...cornerNeighbours(yellow(0))]) {
       const a = pivotTowards(LEVEL_ATTITUDE, target);
       expect(windowsEqual(markers(a).forward, target)).toBe(true);
-      expect(pivotCost(LEVEL_ATTITUDE, target)).toBe(1);
     }
   });
 
@@ -82,11 +71,9 @@ describe('pivots and rolls (RULES.md §6)', () => {
     expect(label(m.top)).toBe('D(yellow)');
   });
 
-  it('the midpoint attitude is halfway: half a 2-window pivot is one window', () => {
-    const target = yellow(2); // A → B is two windows
-    expect(pivotCost(LEVEL_ATTITUDE, target)).toBe(2);
-    expect(label(facingAfter(LEVEL_ATTITUDE, { pivotTo: target }, 0.5))).toBe('A/B(yellow)');
-    expect(label(facingAfter(LEVEL_ATTITUDE, { pivotTo: target }, 1))).toBe('B(yellow)');
+  it('a fractional pivot goes part of the way along the arc: half of A → B is A/B', () => {
+    expect(label(markers(pivotTowards(LEVEL_ATTITUDE, yellow(2), 0.5)).forward)).toBe('A/B(yellow)');
+    expect(label(markers(pivotTowards(LEVEL_ATTITUDE, yellow(2), 1)).forward)).toBe('B(yellow)');
   });
 
   it('a roll moves Top without moving Forward; 3 windows to starboard leans Top over to the starboard bearing and lifts Port to the zenith', () => {
@@ -100,11 +87,11 @@ describe('pivots and rolls (RULES.md §6)', () => {
     expect(label(markers(b).starboard)).toBe('purple(upper)');
   });
 
-  it('a maneuver applies the pivot then the roll about the new Forward', () => {
-    const a = applyManeuver(LEVEL_ATTITUDE, { pivotTo: yellow(3), roll: { windows: 6, direction: 'port' } });
+  it('a pivot then a roll about the new Forward: three windows to B/C and six of roll leaves the ship inverted', () => {
+    const a = roll(pivotTowards(LEVEL_ATTITUDE, yellow(3)), 6, 'port');
     const m = markers(a);
     expect(label(m.forward)).toBe('B/C(yellow)');
-    expect(label(m.top)).toBe('purple(lower)'); // rolled inverted
+    expect(label(m.top)).toBe('purple(lower)');
   });
 
   it('marker pairs are antipodal and side markers stay about three windows from Forward for any attitude', () => {

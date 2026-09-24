@@ -30,7 +30,7 @@ markers, the AI's launches.
    Then tick each of your ships whose EoT marker you displaced and say where it now is.
 3. **AI shooting** (step 3). The AI chooses its launches against the EoT markers as they now
    stand — it knows where you displaced to, not how you pivoted or rolled — and shows its full
-   order sheets: pivot (windows and target window), roll, thrust (with the vector changes to
+   order sheets: pivot (the path of windows walked on the AVID, the Midpoint marked), roll, thrust (with the vector changes to
    write into the arrows), the Forward and Top windows to set at the Midpoint and at End of
    Turn, and each missile launch with its salvo card entries (range, bearing, impact window,
    band per salvo). The plot is the one made at step 2; shooting never changes it.
@@ -76,7 +76,10 @@ ratings it warns when the plan costs more windows than the ship has.
 The AI never sees your plot: its movement depends only on the report, and it assumes every
 enemy drifts on its vectors and holds its attitude. At shooting it also knows where every EoT
 marker ended up. For each of its ships it enumerates every legal
-pivot, roll and thrust within the ship's current ratings and scores each with a coarse model:
+pivot, roll and thrust within the ship's current ratings and scores each with a coarse model.
+A pivot is the shortest path on the AVID card to a window the pivot rating reaches, and the
+Midpoint and End of Turn markers are worked out exactly as the AVID helper does it, so the AI's
+order sheet and the helper always agree on the same plan:
 
 - **One side per target.** Each side's targeting arc is the AVID window its pointer is in and
   the eight windows around it. A ship targets a given enemy through one side a turn: all its

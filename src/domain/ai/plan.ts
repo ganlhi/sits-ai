@@ -4,7 +4,7 @@
  * EoT marker displaced, the launches (step 3). Deterministic for a game and turn, so plotting
  * twice on the same reports gives the same orders.
  */
-import { allThrustOptions, facingAfter, pivotOptions, windowLabel, type AvidWindow, type Maneuver } from '../geometry';
+import { ALL_WINDOWS, allThrustOptions, facingAfter, maneuverPivots, markers, pivotSteps, shortestPath, windowKey, type AvidWindow, type Maneuver } from '../geometry';
 import { isOutOfAction, withHistory, type Game, type Launch, type Orders, type Ship } from '../game';
 import type { Posture } from './doctrine';
 import { Evaluator, type Candidate, type Evaluation } from './evaluate';
@@ -28,25 +28,25 @@ const ROLLS: readonly (Maneuver['roll'] | undefined)[] = [
   { windows: 3, direction: 'starboard' },
 ];
 
-/** Every legal pivot/roll/thrust combination within the ship's ratings, deduplicated and capped. */
+/**
+ * Every legal pivot/roll/thrust combination within the ship's ratings, deduplicated and capped.
+ * A pivot is written as the shortest path on the card to each window the pivot rating reaches
+ * (avidGraph.ts); the AI takes no detours.
+ */
 export function generateCandidates(ship: Ship, maxCandidates = 1200, rng: Rng = seededRng(1)): Candidate[] {
   const limits = ship.ratings;
-  const pivots: (AvidWindow | undefined)[] = [undefined];
-  const seen = new Set<string>();
-  for (let n = 1; n <= limits.pivot; n++) {
-    for (const w of pivotOptions(ship.attitude, n)) {
-      const k = windowLabel(w);
-      if (!seen.has(k)) {
-        seen.add(k);
-        pivots.push(w);
-      }
-    }
+  const from = markers(ship.attitude).forward;
+  const pivots: (readonly AvidWindow[] | undefined)[] = [undefined];
+  for (const w of ALL_WINDOWS) {
+    if (windowKey(w) === windowKey(from)) continue;
+    const n = pivotSteps(from, w);
+    if (n >= 1 && n <= limits.pivot) pivots.push(shortestPath(from, w));
   }
   const out: Candidate[] = [];
-  for (const pivotTo of pivots) {
+  for (const pivotPath of pivots) {
     for (const roll of ROLLS) {
       if (roll && roll.windows > limits.roll) continue;
-      const maneuver: Maneuver = { ...(pivotTo ? { pivotTo } : {}), ...(roll ? { roll } : {}) };
+      const maneuver: Maneuver = { ...(pivotPath ? { pivotPath } : {}), ...(roll ? { roll } : {}) };
       const facing = facingAfter(ship.attitude, maneuver, 0.5);
       for (const plot of allThrustOptions(limits.thrust, facing)) out.push({ maneuver, thrust: plot.delta, thrustUsed: plot.thrust });
     }
@@ -99,8 +99,8 @@ function rationaleFor(evaluator: Evaluator, e: Evaluation): string {
   }
   if (b.wedgedSalvoes > 0) parts.push(`shows the wedge to ${b.wedgedSalvoes} incoming salvo${b.wedgedSalvoes === 1 ? '' : 'es'}`);
   if (e.eotRangeToNearest !== null) parts.push(`ends the turn at range ${e.eotRangeToNearest}${evaluator.goal !== null ? ` (wants ${evaluator.goal})` : ''}`);
-  if (c.maneuver.pivotTo && c.thrustUsed > 0) parts.push('pivots and thrusts, forfeiting displacement');
-  else if (c.maneuver.pivotTo) parts.push('pivots without thrust');
+  if (maneuverPivots(c.maneuver) && c.thrustUsed > 0) parts.push('pivots and thrusts, forfeiting displacement');
+  else if (maneuverPivots(c.maneuver)) parts.push('pivots without thrust');
   else if (c.thrustUsed > 0) parts.push('holds Forward to keep displacement');
   else if (c.maneuver.roll) parts.push('only rolls');
   else parts.push('holds attitude and drifts');

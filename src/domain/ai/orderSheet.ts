@@ -3,7 +3,7 @@
  * to execute it on the table — where the markers go, the attitude to set at the Midpoint and
  * at End of Turn, and the salvo card entries for each launch.
  */
-import { applyManeuver, bearing, facingAfter, formatVelocity, impactWindow, markers, pivotCost, velocityIsZero, windowLabel, type Markers, type Position } from '../geometry';
+import { bearing, formatVelocity, impactWindow, maneuverTrace, markers, stepKind, velocityIsZero, windowLabel, type Markers, type Position } from '../geometry';
 import { BAND_LABELS, MOUNT_NAMES, bandFor, formatPosition, shipById, shipMotion, type Game, type SalvoTiming, type Ship } from '../game';
 
 export interface SalvoLine {
@@ -56,16 +56,26 @@ export function orderSheet(game: Game, ship: Ship): OrderSheet | null {
   const orders = ship.orders;
   if (!orders) return null;
   const m0 = markers(ship.attitude);
+  const trace = maneuverTrace(ship.attitude, orders.maneuver);
   const maneuver: string[] = [];
-  if (orders.maneuver.pivotTo) {
-    const cost = pivotCost(ship.attitude, orders.maneuver.pivotTo);
-    maneuver.push(`Pivot ${cost} window${cost === 1 ? '' : 's'}: Forward from ${windowLabel(m0.forward)} to ${windowLabel(orders.maneuver.pivotTo)}.`);
+  const path = orders.maneuver.pivotPath ?? [];
+  if (path.length) {
+    // the path as walked on the card, a diagonal step marked, the Midpoint after half the steps rounded down
+    let at = m0.forward;
+    const legs = path.map((w, i) => {
+      const arrow = stepKind(at, w) === 'corner' ? ' ⤢ ' : ' → ';
+      at = w;
+      return `${arrow}${windowLabel(w)}${i + 1 === trace.pivotSplit[0] ? ' [Midpoint]' : ''}`;
+    });
+    maneuver.push(`Pivot ${path.length} window${path.length === 1 ? '' : 's'}: Forward ${windowLabel(m0.forward)}${legs.join('')}.`);
   } else {
     maneuver.push(`No pivot: Forward stays ${windowLabel(m0.forward)}.`);
   }
-  if (orders.maneuver.roll) maneuver.push(`Roll ${orders.maneuver.roll.windows} window${orders.maneuver.roll.windows === 1 ? '' : 's'} to ${orders.maneuver.roll.direction}.`);
-  else maneuver.push('No roll.');
-  const facing = facingAfter(ship.attitude, orders.maneuver, 0.5);
+  if (orders.maneuver.roll) {
+    const r = orders.maneuver.roll;
+    maneuver.push(`Roll ${r.windows} window${r.windows === 1 ? '' : 's'} to ${r.direction}: ${trace.rollSplit[0]} at the Midpoint, ${trace.rollSplit[1]} at End of Turn.`);
+  } else maneuver.push('No roll.');
+  const facing = trace.midpoint.forward;
   maneuver.push(orders.thrustUsed === 0 ? 'No thrust.' : `Thrust ${orders.thrustUsed} along the Midpoint facing ${windowLabel(facing)}: write ${formatVelocity(orders.thrust)} into the AVID arrows.`);
 
   const motion = shipMotion(ship);
@@ -97,8 +107,8 @@ export function orderSheet(game: Game, ship: Ship): OrderSheet | null {
     midpoint: motion.midpoint,
     endOfTurn: motion.endOfTurn,
     displacement: velocityIsZero(motion.displacement) ? null : formatVelocity(motion.displacement),
-    attitudeAtMidpoint: markers(applyManeuver(ship.attitude, orders.maneuver, 0.5)),
-    attitudeAtEot: markers(applyManeuver(ship.attitude, orders.maneuver, 1)),
+    attitudeAtMidpoint: trace.midpoint.top[0]?.markers ?? markers(trace.midpoint.exact),
+    attitudeAtEot: trace.endOfTurn.top[0]?.markers ?? markers(trace.endOfTurn.exact),
     launches,
     rationale: orders.rationale,
   };

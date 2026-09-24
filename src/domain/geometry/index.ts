@@ -15,3 +15,4 @@ export * from './movement';
 export * from './firingArc';
 export * from './maneuverTrace';
 export * from './avidGraph';
+export * from './maneuver';

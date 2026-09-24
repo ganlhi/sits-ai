@@ -2,6 +2,7 @@
  * Persistence: every game is a JSON snapshot in localStorage, saved on every change. No
  * backend, no account, no network. Export and import move a game between devices.
  */
+import { markers, shortestPath, type AvidWindow } from '../domain/geometry';
 import { useEffect, useState } from 'react';
 import { uniformBda, type Bda, type Game, type Phase, type Ship } from '../domain/game';
 
@@ -26,11 +27,19 @@ export interface GameSummary {
 type OldShip = Omit<Ship, 'bda' | 'outOfAction' | 'displacedEot'> & { bda: Bda | Ship['bda']; outOfAction?: boolean; displacedEot?: Ship['displacedEot'] };
 type OldState = { phase?: Phase; revealed?: boolean };
 
+/** Orders once named the window to pivot to; they now carry the path walked on the card. */
+function upgradeOrders(s: Ship): Ship {
+  const m = s.orders?.maneuver as (Ship['orders'] & object)['maneuver'] & { pivotTo?: AvidWindow };
+  if (!s.orders || !m?.pivotTo) return s;
+  const { pivotTo, ...rest } = m;
+  return { ...s, orders: { ...s.orders, maneuver: { ...rest, pivotPath: shortestPath(markers(s.attitude).forward, pivotTo) } } };
+}
+
 function upgradeShip(s: Ship): Ship {
   const old = s as OldShip;
   const displacedEot = old.displacedEot ?? null;
-  if (typeof old.bda !== 'string') return { ...s, outOfAction: old.outOfAction ?? false, displacedEot };
-  return { ...old, bda: uniformBda(old.bda), outOfAction: old.outOfAction ?? old.bda === 'crippled', displacedEot };
+  if (typeof old.bda !== 'string') return upgradeOrders({ ...s, outOfAction: old.outOfAction ?? false, displacedEot });
+  return upgradeOrders({ ...old, bda: uniformBda(old.bda), outOfAction: old.outOfAction ?? old.bda === 'crippled', displacedEot });
 }
 
 const upgradePhase = (x: OldState): Phase => x.phase ?? (x.revealed ? 'fired' : 'report');

@@ -24,6 +24,7 @@ import {
   bearing,
   dot,
   impactWindow,
+  maneuverPivots,
   markerDirection,
   mountArcColour,
   planMotion,
@@ -210,7 +211,7 @@ export class Evaluator {
   evaluate(c: Candidate): Evaluation {
     const me = this.ship;
     const w = this.weights;
-    const motion = planMotion({ position: me.position, velocity: me.velocity, halfDisplacements: me.halfDisplacements }, c.thrust, c.maneuver.pivotTo !== undefined);
+    const motion = planMotion({ position: me.position, velocity: me.velocity, halfDisplacements: me.halfDisplacements }, c.thrust, maneuverPivots(c.maneuver));
     const attMid = applyManeuver(me.attitude, c.maneuver, 0.5);
     const attEot = applyManeuver(me.attitude, c.maneuver, 1);
     const myAttitudeAt: Record<SalvoTiming, Attitude> = { early: me.attitude, middle: attMid, late: attEot };

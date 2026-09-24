@@ -10,7 +10,7 @@
  * Modelling the attitude continuously rather than as marker windows reproduces the book's
  * worked examples (Annex Z1.0), including the "Top on the spine of the green ring" case.
  */
-import { directionToWindow, windowDirection, windowDistance, windowsAtDistance, type AvidWindow } from './avid';
+import { directionToWindow, windowDirection, type AvidWindow } from './avid';
 import { NORTH, UP, angleBetween, approxEqual, cross, normalize, orthogonalTo, rotateAbout, scale, type Vec3 } from './vec3';
 
 export interface Attitude {
@@ -107,37 +107,4 @@ export function pivotToDirection(a: Attitude, t: Vec3, fraction = 1): Attitude {
   return rotateAttitude(a, normalize(axisRaw), angle * fraction);
 }
 
-/** Windows Forward can be pivoted to with exactly `windows` windows of pivot. */
-export function pivotOptions(a: Attitude, windows: number): AvidWindow[] {
-  return windowsAtDistance(markers(a).forward, windows);
-}
-
-/** How many windows a pivot to `target` costs from this attitude. */
-export function pivotCost(a: Attitude, target: AvidWindow): number {
-  return windowDistance(markers(a).forward, target);
-}
-
-export interface Maneuver {
-  /** Window to pivot Forward to; omit for no pivot. */
-  readonly pivotTo?: AvidWindow;
-  readonly roll?: { readonly windows: number; readonly direction: RollDirection };
-}
-
-export const NO_MANEUVER: Maneuver = {};
-
-export const maneuverPivots = (m: Maneuver): boolean => m.pivotTo !== undefined;
-
-/**
- * Apply a maneuver: the pivot first, then the roll about the new Forward. `fraction` 0.5 is
- * the Midpoint (half pivot, half roll), 1 the End of Turn.
- */
-export function applyManeuver(a: Attitude, m: Maneuver, fraction = 1): Attitude {
-  let out = m.pivotTo ? pivotTowards(a, m.pivotTo, fraction) : a;
-  if (m.roll && m.roll.windows > 0) out = roll(out, m.roll.windows * fraction, m.roll.direction);
-  return out;
-}
-
-/** The Forward window after the maneuver — the ship's facing for the thrust plot. */
-export function facingAfter(a: Attitude, m: Maneuver, fraction = 1): AvidWindow {
-  return markers(applyManeuver(a, m, fraction)).forward;
-}
+// Maneuvers (a pivot path on the card and a roll) live in maneuver.ts, on top of the trace in maneuverTrace.ts.

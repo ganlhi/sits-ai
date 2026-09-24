@@ -11,7 +11,8 @@
  * (A/B) touches the two green windows either side of its column along an edge, and a blue edge
  * window (A) touches the one green window in its column. Every green window touches purple.
  */
-import { ALL_WINDOWS, blue, green, purple, windowKey, windowLabel, yellow, type AvidWindow, type Hemisphere } from './avid';
+import { ALL_WINDOWS, blue, green, purple, windowDirection, windowKey, windowLabel, yellow, type AvidWindow, type Hemisphere } from './avid';
+import { cross, dot, length, normalize } from './vec3';
 
 const mod12 = (n: number): number => ((n % 12) + 12) % 12;
 
@@ -136,4 +137,50 @@ export function pivotStepsVia(a: AvidWindow, m: AvidWindow, b: AvidWindow): Pivo
   let best = options[0]!;
   for (const o of options) if (o[0] + o[1] < best[0] + best[1]) best = o;
   return { total: best[0] + best[1], legs: best };
+}
+
+/**
+ * The path the AI writes for a pivot from `from` to `to`: fewest steps, one diagonal at most,
+ * and among those the one keeping closest to the arc between the two windows. Deterministic,
+ * so the same plot always reads the same on the order sheet. Empty when `to` is `from`.
+ */
+export function shortestPath(from: AvidWindow, to: AvidWindow): AvidWindow[] {
+  const a = windowDirection(from);
+  const b = windowDirection(to);
+  const n = cross(a, b);
+  const normal = length(n) > 1e-6 ? normalize(n) : null;
+  const offArc = (w: AvidWindow): number => (normal ? Math.abs(Math.asin(Math.max(-1, Math.min(1, dot(windowDirection(w), normal))))) : 0);
+  const STEP = 1000; // a step outweighs any deviation from the arc
+  type State = { readonly w: AvidWindow; readonly used: boolean };
+  const key = (s: State): string => `${windowKey(s.w)}|${s.used ? 1 : 0}`;
+  const cost = new Map<string, number>();
+  const back = new Map<string, State | null>();
+  const open: State[] = [{ w: from, used: false }];
+  cost.set(key(open[0]!), 0);
+  back.set(key(open[0]!), null);
+  const goal = windowKey(to);
+  while (open.length) {
+    let bi = 0;
+    for (let i = 1; i < open.length; i++) if (cost.get(key(open[i]!))! < cost.get(key(open[bi]!))!) bi = i;
+    const s = open.splice(bi, 1)[0]!;
+    if (windowKey(s.w) === goal) {
+      const path: AvidWindow[] = [];
+      for (let cur: State | null = s; cur && back.get(key(cur)) !== undefined && back.get(key(cur)) !== null; cur = back.get(key(cur))!) path.unshift(cur.w);
+      return path;
+    }
+    const here = cost.get(key(s))!;
+    const relax = (w: AvidWindow, used: boolean) => {
+      const next: State = { w, used };
+      const c = here + STEP + offArc(w);
+      const k = key(next);
+      if (c < (cost.get(k) ?? Infinity)) {
+        cost.set(k, c);
+        back.set(k, s);
+        if (!open.some((o) => key(o) === k)) open.push(next);
+      }
+    };
+    for (const w of edgeNeighbours(s.w)) relax(w, s.used);
+    if (!s.used) for (const w of cornerNeighbours(s.w)) relax(w, true);
+  }
+  return [];
 }

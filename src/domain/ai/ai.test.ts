@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CUBE_ORIGIN, DIRECTION_CUBE, LEVEL_ATTITUDE, attitudeFromWindows, bearing, cubeScale, facingAfter, pivotCost, position, purple, thrustOptions, velocity, windowDirection, yellow } from '../geometry';
+import { CUBE_ORIGIN, DIRECTION_CUBE, LEVEL_ATTITUDE, attitudeFromWindows, bearing, cubeScale, facingAfter, maneuverPivots, markers, pathProblems, pivotWindows, position, purple, thrustOptions, velocity, windowDirection, yellow } from '../geometry';
 import { BUILT_IN_CLASSES, FULL_EFFECTIVENESS, UNDAMAGED, ratingsOf, uniformBda, type Game, type Ship } from '../game';
 import { effectiveWeights, goalRange, postureFor } from './doctrine';
 import { bestVolley, impactFacing, salvoDamage, vulnerability } from './evaluate';
@@ -51,7 +51,8 @@ const duel = game([ship('red', { velocity: velocity({ A: 1 }) }), warrior]);
 const legal = (g: Game, s: Ship): void => {
   const o = s.orders!;
   const limits = s.ratings;
-  if (o.maneuver.pivotTo) expect(pivotCost(s.attitude, o.maneuver.pivotTo)).toBeLessThanOrEqual(limits.pivot);
+  expect(pivotWindows(o.maneuver)).toBeLessThanOrEqual(limits.pivot);
+  expect(pathProblems(markers(s.attitude).forward, o.maneuver.pivotPath ?? [])).toEqual([]);
   if (o.maneuver.roll) expect(o.maneuver.roll.windows).toBeLessThanOrEqual(limits.roll);
   expect(o.thrustUsed).toBeLessThanOrEqual(limits.thrust);
   const facing = facingAfter(s.attitude, o.maneuver, 0.5);
@@ -178,7 +179,7 @@ describe('evaluator pieces', () => {
     const hurt = generateCandidates(ship('a', { ratings: { thrust: 1, pivot: 1, roll: 1 } }), 100000);
     expect(fresh.length).toBeGreaterThan(hurt.length);
     expect(hurt.every((c) => c.thrustUsed <= 1 && (!c.maneuver.roll || c.maneuver.roll.windows <= 1))).toBe(true);
-    expect(fresh.every((c) => !c.maneuver.pivotTo || pivotCost(LEVEL_ATTITUDE, c.maneuver.pivotTo) <= 3)).toBe(true);
+    expect(fresh.every((c) => pivotWindows(c.maneuver) <= 3)).toBe(true);
     expect(generateCandidates(ship('a', { shipClass: HAVOC, ratings: ratingsOf(HAVOC) }), 500).length).toBeLessThanOrEqual(500);
   });
 });
@@ -210,7 +211,7 @@ describe('planning', () => {
     const me = ship('me', { effectiveness: { forward: 100, aft: 100, port: 100, starboard: 0 } });
     const g = playTurn(game([me, foe]));
     const o = g.ships[0]!.orders!;
-    expect(o.launches!.some((l) => l.mount === 'port') || o.maneuver.pivotTo !== undefined).toBe(true);
+    expect(o.launches!.some((l) => l.mount === 'port') || maneuverPivots(o.maneuver)).toBe(true);
     expect(o.launches!.every((l) => l.mount !== 'starboard')).toBe(true);
   });
 
@@ -275,7 +276,7 @@ describe('plotting, then shooting', () => {
     const o = p.ships[0]!.orders!;
     expect(o.launches).toBeNull();
     const n = displacementNotice(p.ships[0]!)!;
-    expect(n.displacement === null).toBe(o.thrustUsed === 0 || o.maneuver.pivotTo !== undefined);
+    expect(n.displacement === null).toBe(o.thrustUsed === 0 || maneuverPivots(o.maneuver));
     expect(displacementNotice(p.ships[1]!)).toBeNull();
   });
 
