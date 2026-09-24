@@ -143,6 +143,10 @@ export interface SideVolley {
  * shooter's current attitude; each salvo is shot on its timing's bearing and lands on the
  * target's attitude at that impact. Only one side may target a given enemy, so the others'
  * salvoes do not add up.
+ *
+ * `band` is the EoT-to-EoT band: it says which timings are available (§11.1). Each salvo is
+ * then rated by the band of its own recorded range (§11.3); a salvo whose own range is beyond
+ * the class's last band has no MQL and cannot go on the card, so it is skipped.
  */
 export function bestVolley(
   shooter: Ship,
@@ -162,8 +166,10 @@ export function bestVolley(
       const g = geometry[t];
       if (!g.window) continue;
       if (mountArcColour(STANDARD_ARCS, m, shooterAttitude, windowDirection(g.window)) === 'black') continue;
+      const salvoBand = bandFor(shooter.shipClass, g.range);
+      if (!salvoBand) continue;
       const impactDir = windowDirection(impactWindow(g)!);
-      const dmg = salvoDamage(shooter, m, band, target, targetAttitudeAt[t], impactDir);
+      const dmg = salvoDamage(shooter, m, salvoBand, target, targetAttitudeAt[t], impactDir);
       if (dmg <= 0) continue;
       timings.push(t);
       damage += dmg;

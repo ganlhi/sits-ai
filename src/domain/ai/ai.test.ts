@@ -157,6 +157,22 @@ describe('evaluator pieces', () => {
     expect(stbdOnly).toMatchObject({ mount: 'starboard', timings: ['late'] });
   });
 
+  it("a salvo whose own range is past the class's last band is not fired, even when the EoT band allows the timing", () => {
+    const s = ship('s');
+    const t = ship('t', { side: 'green' });
+    const at = { early: LEVEL_ATTITUDE, middle: LEVEL_ATTITUDE, late: LEVEL_ATTITUDE };
+    const abeam = (range: number) => bearing(position(CUBE_ORIGIN, 0), position(cubeScale(DIRECTION_CUBE.C, range), 0));
+    // EoT to EoT in the long band (Late only), but the Late bearing itself runs past the Sultan's reach of 28
+    expect(bestVolley(s, LEVEL_ATTITUDE, 'long', t, at, { early: abeam(31), middle: abeam(31), late: abeam(31) })).toBeNull();
+    expect(bestVolley(s, LEVEL_ATTITUDE, 'long', t, at, { early: abeam(31), middle: abeam(31), late: abeam(27) })).toMatchObject({ timings: ['late'] });
+    // short band grants three salvoes, but the Early one is shot at a range the card has no MQL for
+    expect(bestVolley(s, LEVEL_ATTITUDE, 'short', t, at, { early: abeam(30), middle: abeam(5), late: abeam(4) })).toMatchObject({ timings: ['middle', 'late'] });
+    // each salvo is rated by its own band: a Late shot at long range is worth less than one at short range
+    const far = bestVolley(s, LEVEL_ATTITUDE, 'long', t, at, { early: abeam(27), middle: abeam(27), late: abeam(27) })!;
+    const near = bestVolley(s, LEVEL_ATTITUDE, 'long', t, at, { early: abeam(5), middle: abeam(5), late: abeam(5) })!;
+    expect(far.damage).toBeLessThan(near.damage);
+  });
+
   it('candidate generation respects the current ratings', () => {
     const fresh = generateCandidates(ship('a'), 100000);
     const hurt = generateCandidates(ship('a', { ratings: { thrust: 1, pivot: 1, roll: 1 } }), 100000);
@@ -229,13 +245,27 @@ describe('planning', () => {
       for (const line of l.salvoes) {
         expect(line.range).toBeGreaterThan(0);
         expect(line.impact).toMatch(/\(/);
-        expect(['Short', 'Medium', 'Long', 'out of range']).toContain(line.band);
+        expect(['Short', 'Medium', 'Long']).toContain(line.band);
       }
     }
     const text = orderSheetText(s, 'RED');
     expect(text).toContain('Midpoint marker at');
     expect(text).toContain('At End of Turn: Forward');
     expect(orderSheet(r, r.ships[1]!)).toBeNull();
+  });
+
+  it('never writes a salvo the card has no range for, even closing fast from the edge of missile reach', () => {
+    // Sultan rushing at 6 hexes a turn towards a Warrior 34 hexes off: EoT to EoT lands in the long band,
+    // but the Late bearing, shot from the Sultan's Midpoint, is still past its reach of 28.
+    const rusher = ship('red', { velocity: velocity({ B: 6 }) });
+    const target = { ...warrior, position: position(cubeScale(DIRECTION_CUBE.B, 34), 0), velocity: velocity({}) };
+    for (let turn = 1; turn <= 3; turn++) {
+      const g = { ...game([rusher, target]), turn };
+      const r = playTurn(g);
+      legal(r, r.ships[0]!);
+      const s = orderSheet(r, r.ships[0]!)!;
+      for (const l of s.launches) for (const line of l.salvoes) expect(line.band).not.toBe('out of range');
+    }
   });
 });
 
