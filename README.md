@@ -58,14 +58,17 @@ A ship copies its class when it is added, so editing the library never changes a
 ## AVID helper
 
 A table aid for your own ships, in the **AVID helper** tab. Give a ship's Forward and Top
-markers as they are now, tick *pivots* and say where Forward goes at End of Turn and at the
-Midpoint (the arc's own midpoint is proposed), and give the roll as "N windows to port or
-starboard". The tab lists, for the Midpoint and for End of Turn, every window that may hold the
-Top marker — three windows from the new Forward, best fit to the exact attitude first — and the
-Port, Starboard, Aft and Bottom windows that go with each. Where the exact Top falls between two
-windows (an odd roll halved, a pivot on a diagonal) both are listed; a Top on the spine between
-two green windows is called out. It warns when the Midpoint window is off the arc or not halfway,
-and, if you enter the ratings, when the plan costs more windows than the ship has.
+markers as they are now, tick *pivots* and say where Forward goes at End of Turn, how many
+windows the pivot costs and where Forward is at the Midpoint, and give the roll as "N windows to
+port or starboard". A pivot is a walk on the card from window to touching window, detours
+allowed, with at most one diagonal step (yellow to the blue window one column over); half of it
+and half of the roll, rounded down, are done at the Midpoint. The tab lists, for the Midpoint
+and for End of Turn, every window that may hold the Top marker — three windows from the new
+Forward, best fit to the exact attitude first — and the Port, Starboard, Aft and Bottom windows
+that go with each. Where the exact Top falls between two windows both are listed; a Top on the
+spine between two green windows is called out. It warns when the windows entered cannot reach
+the Midpoint and End of Turn windows, when the Midpoint is too far along for its half, and, if
+you enter the ratings, when the plan costs more windows than the ship has.
 
 ## How the opponent plots
 

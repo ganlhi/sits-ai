@@ -1,19 +1,20 @@
 /**
- * The AVID helper: for a ship's current attitude, a pivot plan (where Forward goes at the
- * Midpoint and at End of Turn) and a roll plan, the windows that may hold the Top marker at each
- * step, with the other markers that follow. A table aid, independent of any game.
+ * The AVID helper: for a ship's current attitude, a pivot plan (how many windows, where Forward
+ * is at the Midpoint and at End of Turn) and a roll plan, the windows that may hold the Top
+ * marker at each step, with the other markers that follow. A table aid, independent of any game.
  */
 import { useMemo, useState } from 'react';
 import {
   ALL_WINDOWS,
   LEVEL_ATTITUDE,
-  MARKER_NAMES,
   defaultPivotMidpoint,
   markers,
+  midpointOptions,
+  pivotSteps,
   traceManeuver,
-  windowDistance,
   windowKey,
   windowLabel,
+  windowsEqual,
   type Attitude,
   type AvidWindow,
   type RollDirection,
@@ -22,8 +23,7 @@ import {
 import { AttitudeInput } from './AttitudeInput';
 
 const byKey = (key: string): AvidWindow | undefined => ALL_WINDOWS.find((w) => windowKey(w) === key);
-
-const MARKER_LABEL: Readonly<Record<(typeof MARKER_NAMES)[number], string>> = { forward: 'Forward', aft: 'Aft', port: 'Port', starboard: 'Starboard', top: 'Top', bottom: 'Bottom' };
+const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 function StepTable({ title, step, when }: { title: string; step: TraceStep; when: string }) {
   return (
@@ -73,6 +73,7 @@ export function AvidHelperScreen() {
   const [pivots, setPivots] = useState(false);
   const [eotForward, setEotForward] = useState<AvidWindow | null>(null);
   const [midForward, setMidForward] = useState<AvidWindow | null>(null);
+  const [pivotWindowsText, setPivotWindowsText] = useState('');
   const [rollWindows, setRollWindows] = useState(0);
   const [rollDirection, setRollDirection] = useState<RollDirection>('starboard');
   const [pivotRating, setPivotRating] = useState('');
@@ -80,19 +81,17 @@ export function AvidHelperScreen() {
 
   const m0 = markers(start);
   const end = pivots ? (eotForward ?? m0.forward) : null;
-  const mid = end ? (midForward ?? defaultPivotMidpoint(start, end)) : null;
-  const pivotPlan = end && mid ? { midpoint: mid, endOfTurn: end } : null;
+  const shortestDirect = end ? pivotSteps(m0.forward, end) : 0;
+  const typed = Number(pivotWindowsText);
+  const pivotWindows = pivotWindowsText.trim() !== '' && Number.isInteger(typed) && typed >= 0 ? typed : shortestDirect;
+
+  /** Windows that can be the Midpoint of this pivot, those splitting it most evenly first. */
+  const midOptions = useMemo(() => (end ? midpointOptions(start, end, pivotWindows, ALL_WINDOWS) : []), [start, end, pivotWindows]);
+  const mid = end ? (midForward && midOptions.some((o) => windowsEqual(o.window, midForward)) ? midForward : defaultPivotMidpoint(start, end, pivotWindows)) : null;
+
+  const pivotPlan = end && mid ? { windows: pivotWindows, midpoint: mid, endOfTurn: end } : null;
   const rollPlan = rollWindows > 0 ? { windows: rollWindows, direction: rollDirection } : null;
   const trace = useMemo(() => traceManeuver(start, pivotPlan, rollPlan), [start, pivotPlan, rollPlan]);
-
-  /** Windows that can serve as the Midpoint for this pivot: on or near the arc, halfway first. */
-  const midOptions = useMemo(() => {
-    if (!end) return [];
-    const total = windowDistance(m0.forward, end);
-    return ALL_WINDOWS.map((w) => ({ w, a: windowDistance(m0.forward, w), b: windowDistance(w, end) }))
-      .filter(({ a, b }) => a + b <= total + 1 && a <= total && b <= total)
-      .sort((x, y) => Math.abs(x.a - x.b) - Math.abs(y.a - y.b) || x.a + x.b - (y.a + y.b));
-  }, [m0.forward, end]);
 
   const changeStart = (a: Attitude) => {
     setStart(a);
@@ -106,17 +105,17 @@ export function AvidHelperScreen() {
   const pr = Number(pivotRating);
   const rr = Number(rollRating);
   const ratingWarnings: string[] = [];
-  if (pivotRating.trim() !== '' && Number.isFinite(pr) && trace.pivotWindows > pr) ratingWarnings.push(`The pivot costs ${trace.pivotWindows} windows, more than the pivot rating of ${pr}.`);
-  if (rollRating.trim() !== '' && Number.isFinite(rr) && rollWindows > rr) ratingWarnings.push(`The roll is ${rollWindows} windows, more than the roll rating of ${rr}.`);
+  if (pivotRating.trim() !== '' && Number.isFinite(pr) && trace.pivotWindows > pr) ratingWarnings.push(`The pivot costs ${plural(trace.pivotWindows, 'window')}, more than the pivot rating of ${pr}.`);
+  if (rollRating.trim() !== '' && Number.isFinite(rr) && rollWindows > rr) ratingWarnings.push(`The roll is ${plural(rollWindows, 'window')}, more than the roll rating of ${rr}.`);
 
   return (
     <div className="games">
       <section className="panel">
         <h2>AVID helper</h2>
         <p className="note">
-          Set a ship's markers as they are now, say where its Forward goes at the Midpoint and at End of Turn and how far it rolls, and read off where the Top marker may go at each step.
-          The pivot is the arc from one Forward window to the next, the roll turns about Forward, and half of each is applied at the Midpoint (RULES.md §6). Top must be three windows from
-          Forward; where the exact attitude falls between two windows, both are listed.
+          Set a ship's markers as they are now, say how many windows it pivots and where its Forward is at the Midpoint and at End of Turn, and how far it rolls; read off where the Top
+          marker may go at each step. A pivot walks Forward from window to touching window, detours allowed, with at most one diagonal step; the roll turns about Forward. Half of each,
+          rounded down, is done at the Midpoint (RULES.md §6). Top must be three windows from Forward; where the exact attitude falls between two windows, both are listed.
         </p>
         <div className="grid-2">
           <div className="stack">
@@ -144,15 +143,19 @@ export function AvidHelperScreen() {
                         if (w) changeEot(w);
                       }}
                     >
-                      {ALL_WINDOWS.map((w) => {
-                        const d = windowDistance(m0.forward, w);
-                        return (
-                          <option key={windowKey(w)} value={windowKey(w)}>
-                            {windowLabel(w)} — {d} window{d === 1 ? '' : 's'}
-                          </option>
-                        );
-                      })}
+                      {ALL_WINDOWS.map((w) => (
+                        <option key={windowKey(w)} value={windowKey(w)}>
+                          {windowLabel(w)} — at least {plural(pivotSteps(m0.forward, w), 'window')}
+                        </option>
+                      ))}
                     </select>
+                  </div>
+                  <div className="field">
+                    <label>Windows pivoted</label>
+                    <input value={pivotWindowsText} inputMode="numeric" placeholder={String(shortestDirect)} onChange={(e) => setPivotWindowsText(e.target.value)} />
+                    <span className="note">
+                      The path walked on the card, detours included. The shortest path to {windowLabel(end)} is {plural(shortestDirect, 'window')}.
+                    </span>
                   </div>
                   <div className="field">
                     <label>Forward at the Midpoint</label>
@@ -163,15 +166,16 @@ export function AvidHelperScreen() {
                         if (w) setMidForward(w);
                       }}
                     >
-                      {midOptions.map(({ w, a, b }) => (
+                      {midOptions.map(({ window: w, legs }) => (
                         <option key={windowKey(w)} value={windowKey(w)}>
-                          {windowLabel(w)} — {a} then {b}
+                          {windowLabel(w)} — at least {legs[0]} then {legs[1]}
                         </option>
                       ))}
+                      {!midOptions.some((o) => windowsEqual(o.window, mid)) && <option value={windowKey(mid)}>{windowLabel(mid)}</option>}
                     </select>
                   </div>
                   <p className="note">
-                    Pivot of <b>{trace.pivotWindows}</b> window{trace.pivotWindows === 1 ? '' : 's'}: {trace.legs[0]} to the Midpoint, {trace.legs[1]} to End of Turn.
+                    Pivot of <b>{plural(trace.pivotWindows, 'window')}</b>: {trace.pivotSplit[0]} at the Midpoint, {trace.pivotSplit[1]} at End of Turn.
                   </p>
                 </>
               )}
@@ -199,7 +203,7 @@ export function AvidHelperScreen() {
               </div>
               {rollWindows > 0 && (
                 <p className="note">
-                  {rollWindows / 2} window{rollWindows / 2 === 1 ? '' : 's'} at the Midpoint, the rest at End of Turn.
+                  {plural(trace.rollSplit[0], 'window')} at the Midpoint, {trace.rollSplit[1]} at End of Turn.
                 </p>
               )}
             </section>
@@ -226,8 +230,8 @@ export function AvidHelperScreen() {
             <StepTable title="At the Midpoint" step={trace.midpoint} when="After half the pivot and half the roll," />
             <StepTable title="At End of Turn" step={trace.endOfTurn} when="With the pivot and roll complete," />
             <p className="note">
-              Markers listed: {MARKER_NAMES.map((m) => MARKER_LABEL[m]).join(', ')}. The other markers follow from Forward and the Top chosen; Port and Starboard are three windows
-              from Forward, Aft and Bottom opposite Forward and Top.
+              The other markers follow from Forward and the Top chosen: Port and Starboard are three windows from Forward, Aft and Bottom opposite Forward and Top. The attitude is rotated
+              along the shortest arc from the start to the Midpoint window and on to the End of Turn window; a long detour may lean the Top a window further than shown.
             </p>
           </div>
         </div>
