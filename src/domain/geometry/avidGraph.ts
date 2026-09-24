@@ -11,7 +11,7 @@
  * (A/B) touches the two green windows either side of its column along an edge, and a blue edge
  * window (A) touches the one green window in its column. Every green window touches purple.
  */
-import { ALL_WINDOWS, blue, green, purple, windowKey, yellow, type AvidWindow, type Hemisphere } from './avid';
+import { ALL_WINDOWS, blue, green, purple, windowKey, windowLabel, yellow, type AvidWindow, type Hemisphere } from './avid';
 
 const mod12 = (n: number): number => ((n % 12) + 12) % 12;
 
@@ -45,6 +45,30 @@ export function cornerNeighbours(w: AvidWindow): AvidWindow[] {
     default:
       return [];
   }
+}
+
+export type StepKind = 'edge' | 'corner';
+
+/** How a pivot step from `a` to `b` crosses the card, or null when the two windows do not touch. */
+export function stepKind(a: AvidWindow, b: AvidWindow): StepKind | null {
+  const bk = windowKey(b);
+  if (edgeNeighbours(a).some((w) => windowKey(w) === bk)) return 'edge';
+  if (cornerNeighbours(a).some((w) => windowKey(w) === bk)) return 'corner';
+  return null;
+}
+
+/** Why a pivot path is not one the card allows, in the player's words; empty when it is fine. */
+export function pathProblems(start: AvidWindow, path: readonly AvidWindow[]): string[] {
+  const out: string[] = [];
+  let diagonals = 0;
+  let at = start;
+  path.forEach((w, i) => {
+    const kind = stepKind(at, w);
+    if (!kind) out.push(`Step ${i + 1}: ${windowLabel(w)} does not touch ${windowLabel(at)}.`);
+    else if (kind === 'corner' && ++diagonals === 2) out.push(`Step ${i + 1} is a second diagonal step; a pivot may take one.`);
+    at = w;
+  });
+  return out;
 }
 
 interface Reach {

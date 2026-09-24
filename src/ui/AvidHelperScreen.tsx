@@ -1,20 +1,18 @@
 /**
- * The AVID helper: for a ship's current attitude, a pivot plan (how many windows, where Forward
- * is at the Midpoint and at End of Turn) and a roll plan, the windows that may hold the Top
- * marker at each step, with the other markers that follow. A table aid, independent of any game.
+ * The AVID helper: for a ship's current attitude, the path its Forward walks on the card and a
+ * roll plan, the windows that may hold the Top marker at the Midpoint and at End of Turn, with
+ * the other markers that follow. A table aid, independent of any game.
  */
 import { useMemo, useState } from 'react';
 import {
-  ALL_WINDOWS,
   LEVEL_ATTITUDE,
-  defaultPivotMidpoint,
+  cornerNeighbours,
+  edgeNeighbours,
   markers,
-  midpointOptions,
-  pivotSteps,
+  stepKind,
   traceManeuver,
   windowKey,
   windowLabel,
-  windowsEqual,
   type Attitude,
   type AvidWindow,
   type RollDirection,
@@ -22,7 +20,6 @@ import {
 } from '../domain/geometry';
 import { AttitudeInput } from './AttitudeInput';
 
-const byKey = (key: string): AvidWindow | undefined => ALL_WINDOWS.find((w) => windowKey(w) === key);
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /** A ship the helper is opened for: its markers now and this turn's pivot and roll ratings. */
@@ -83,38 +80,71 @@ function StepTable({ title, step, when }: { title: string; step: TraceStep; when
   );
 }
 
+/** The path as a chain of chips: the start, then each step behind its arrow, a divider at the Midpoint. Clicking a step cuts the path there. */
+function PathChain({ start, path, midpointAfter, onCut }: { start: AvidWindow; path: readonly AvidWindow[]; midpointAfter: number; onCut: (keep: number) => void }) {
+  let at = start;
+  return (
+    <div className="path" aria-label="pivot path">
+      <span className="chip start">{windowLabel(start)}</span>
+      {path.map((w, i) => {
+        const kind = stepKind(at, w);
+        at = w;
+        return (
+          <span key={i} className="leg">
+            <span className={`arrow ${kind ?? 'bad'}`} title={kind === 'corner' ? 'diagonal step' : kind === 'edge' ? 'step' : 'these windows do not touch'}>
+              {kind === 'corner' ? '⤢' : '→'}
+            </span>
+            <button type="button" className="chip" title="Cut the path here" onClick={() => onCut(i + 1)}>
+              {windowLabel(w)}
+            </button>
+            {i + 1 === midpointAfter && path.length > 0 && <span className="mid">Midpoint</span>}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 export function AvidHelperScreen({ ship, onBack }: AvidHelperScreenProps = {}) {
   const [start, setStart] = useState<Attitude>(ship?.attitude ?? LEVEL_ATTITUDE);
   const [pivots, setPivots] = useState(false);
-  const [eotForward, setEotForward] = useState<AvidWindow | null>(null);
-  const [midForward, setMidForward] = useState<AvidWindow | null>(null);
-  const [pivotWindowsText, setPivotWindowsText] = useState('');
+  const [path, setPath] = useState<AvidWindow[]>([]);
+  const [nextKey, setNextKey] = useState<string | null>(null);
   const [rollWindows, setRollWindows] = useState(0);
   const [rollDirection, setRollDirection] = useState<RollDirection>('starboard');
   const [pivotRating, setPivotRating] = useState(ship ? String(ship.pivot) : '');
   const [rollRating, setRollRating] = useState(ship ? String(ship.roll) : '');
 
   const m0 = markers(start);
-  const end = pivots ? (eotForward ?? m0.forward) : null;
-  const shortestDirect = end ? pivotSteps(m0.forward, end) : 0;
-  const typed = Number(pivotWindowsText);
-  const pivotWindows = pivotWindowsText.trim() !== '' && Number.isInteger(typed) && typed >= 0 ? typed : shortestDirect;
+  const last = path.at(-1) ?? m0.forward;
+  const diagonalUsed = useMemo(() => {
+    let at = m0.forward;
+    for (const w of path) {
+      if (stepKind(at, w) === 'corner') return true;
+      at = w;
+    }
+    return false;
+  }, [m0.forward, path]);
+  const edges = edgeNeighbours(last);
+  const corners = cornerNeighbours(last);
+  const next = [...edges, ...corners].find((w) => windowKey(w) === nextKey) ?? edges[0]!;
 
-  /** Windows that can be the Midpoint of this pivot, those splitting it most evenly first. */
-  const midOptions = useMemo(() => (end ? midpointOptions(start, end, pivotWindows, ALL_WINDOWS) : []), [start, end, pivotWindows]);
-  const mid = end ? (midForward && midOptions.some((o) => windowsEqual(o.window, midForward)) ? midForward : defaultPivotMidpoint(start, end, pivotWindows)) : null;
-
-  const pivotPlan = end && mid ? { windows: pivotWindows, midpoint: mid, endOfTurn: end } : null;
+  const steps = pivots ? path : [];
   const rollPlan = rollWindows > 0 ? { windows: rollWindows, direction: rollDirection } : null;
-  const trace = useMemo(() => traceManeuver(start, pivotPlan, rollPlan), [start, pivotPlan, rollPlan]);
+  const trace = useMemo(() => traceManeuver(start, steps, rollPlan), [start, steps, rollPlan]);
 
   const changeStart = (a: Attitude) => {
     setStart(a);
-    setMidForward(null);
+    setPath([]);
+    setNextKey(null);
   };
-  const changeEot = (w: AvidWindow) => {
-    setEotForward(w);
-    setMidForward(null);
+  const add = () => {
+    setPath([...path, next]);
+    setNextKey(null);
+  };
+  const cut = (keep: number) => {
+    setPath(path.slice(0, keep));
+    setNextKey(null);
   };
 
   const pr = Number(pivotRating);
@@ -140,9 +170,9 @@ export function AvidHelperScreen({ ship, onBack }: AvidHelperScreenProps = {}) {
           </p>
         )}
         <p className="note">
-          Set a ship's markers as they are now, say how many windows it pivots and where its Forward is at the Midpoint and at End of Turn, and how far it rolls; read off where the Top
-          marker may go at each step. A pivot walks Forward from window to touching window, detours allowed, with at most one diagonal step; the roll turns about Forward. Half of each,
-          rounded down, is done at the Midpoint (RULES.md §6). Top must be three windows from Forward; where the exact attitude falls between two windows, both are listed.
+          Set a ship's markers as they are now, walk its Forward along the card window by window, and say how far it rolls; read off where the Top marker may go at the Midpoint and at
+          End of Turn. A pivot step goes to a touching window, one diagonal step (yellow to the blue window a column over) at most; the roll turns about Forward. Half of each, rounded
+          down, is done at the Midpoint (RULES.md §6). Top must be three windows from Forward; where the exact attitude falls between two windows, both are listed.
         </p>
         <div className="grid-2">
           <div className="stack">
@@ -159,51 +189,49 @@ export function AvidHelperScreen({ ship, onBack }: AvidHelperScreenProps = {}) {
                 <input type="checkbox" checked={pivots} onChange={(e) => setPivots(e.target.checked)} />
                 The ship pivots
               </label>
-              {pivots && end && mid && (
+              {pivots && (
                 <>
                   <div className="field">
-                    <label>Forward at End of Turn</label>
-                    <select
-                      value={windowKey(end)}
-                      onChange={(e) => {
-                        const w = byKey(e.target.value);
-                        if (w) changeEot(w);
-                      }}
-                    >
-                      {ALL_WINDOWS.map((w) => (
-                        <option key={windowKey(w)} value={windowKey(w)}>
-                          {windowLabel(w)} — at least {plural(pivotSteps(m0.forward, w), 'window')}
-                        </option>
-                      ))}
-                    </select>
+                    <span className="label">Path</span>
+                    <PathChain start={m0.forward} path={path} midpointAfter={trace.pivotSplit[0]} onCut={cut} />
+                    {path.length === 0 && <span className="note">No step yet: add the windows Forward passes through, in order, ending where it points at End of Turn.</span>}
                   </div>
                   <div className="field">
-                    <label>Windows pivoted</label>
-                    <input value={pivotWindowsText} inputMode="numeric" placeholder={String(shortestDirect)} onChange={(e) => setPivotWindowsText(e.target.value)} />
-                    <span className="note">
-                      The path walked on the card, detours included. The shortest path to {windowLabel(end)} is {plural(shortestDirect, 'window')}.
-                    </span>
+                    <label>Next window</label>
+                    <div className="row">
+                      <select className="grow" value={windowKey(next)} onChange={(e) => setNextKey(e.target.value)}>
+                        {edges.map((w) => (
+                          <option key={windowKey(w)} value={windowKey(w)}>
+                            {windowLabel(w)}
+                          </option>
+                        ))}
+                        {corners.length > 0 && (
+                          <optgroup label={diagonalUsed ? 'diagonal — already used' : 'diagonal — once per pivot'}>
+                            {corners.map((w) => (
+                              <option key={windowKey(w)} value={windowKey(w)} disabled={diagonalUsed}>
+                                {windowLabel(w)}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
+                      <button type="button" className="primary" onClick={add}>
+                        Add
+                      </button>
+                      <button type="button" disabled={path.length === 0} onClick={() => cut(path.length - 1)}>
+                        Undo step
+                      </button>
+                      <button type="button" disabled={path.length === 0} onClick={() => cut(0)}>
+                        Clear
+                      </button>
+                    </div>
                   </div>
-                  <div className="field">
-                    <label>Forward at the Midpoint</label>
-                    <select
-                      value={windowKey(mid)}
-                      onChange={(e) => {
-                        const w = byKey(e.target.value);
-                        if (w) setMidForward(w);
-                      }}
-                    >
-                      {midOptions.map(({ window: w, legs }) => (
-                        <option key={windowKey(w)} value={windowKey(w)}>
-                          {windowLabel(w)} — at least {legs[0]} then {legs[1]}
-                        </option>
-                      ))}
-                      {!midOptions.some((o) => windowsEqual(o.window, mid)) && <option value={windowKey(mid)}>{windowLabel(mid)}</option>}
-                    </select>
-                  </div>
-                  <p className="note">
-                    Pivot of <b>{plural(trace.pivotWindows, 'window')}</b>: {trace.pivotSplit[0]} at the Midpoint, {trace.pivotSplit[1]} at End of Turn.
-                  </p>
+                  {path.length > 0 && (
+                    <p className="note">
+                      Pivot of <b>{plural(trace.pivotWindows, 'window')}</b>: {trace.pivotSplit[0]} at the Midpoint, Forward in {windowLabel(trace.midpoint.forward)}; {trace.pivotSplit[1]} more to End
+                      of Turn, Forward in {windowLabel(trace.endOfTurn.forward)}.
+                    </p>
+                  )}
                 </>
               )}
             </section>
@@ -258,7 +286,7 @@ export function AvidHelperScreen({ ship, onBack }: AvidHelperScreenProps = {}) {
             <StepTable title="At End of Turn" step={trace.endOfTurn} when="With the pivot and roll complete," />
             <p className="note">
               The other markers follow from Forward and the Top chosen: Port and Starboard are three windows from Forward, Aft and Bottom opposite Forward and Top. The attitude is rotated
-              along the shortest arc from the start to the Midpoint window and on to the End of Turn window; a long detour may lean the Top a window further than shown.
+              window to window along the path entered, so a detour leans the Top the way the real path does.
             </p>
           </div>
         </div>

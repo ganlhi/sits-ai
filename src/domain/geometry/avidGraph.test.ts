@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ALL_WINDOWS, blue, green, purple, windowKey, windowLabel, windowsEqual, yellow } from './avid';
-import { cornerNeighbours, edgeNeighbours, pivotSteps, pivotStepsVia } from './avidGraph';
+import { cornerNeighbours, edgeNeighbours, pathProblems, pivotSteps, pivotStepsVia, stepKind } from './avidGraph';
 
 const labels = (ws: readonly { ring: string }[]) => ws.map((w) => windowLabel(w as never)).sort();
 
@@ -62,6 +62,16 @@ describe('the AVID card as a graph of touching windows', () => {
     expect(via.total).toBe(4);
     expect(via.legs[0] + via.legs[1]).toBe(4);
     expect(pivotSteps(yellow(0), blue(1, 'upper')) + pivotSteps(blue(1, 'upper'), yellow(3))).toBe(3);
+  });
+
+  it('names each step of a path: edge, corner or not touching; and finds what is wrong with a path', () => {
+    expect(stepKind(yellow(0), yellow(1))).toBe('edge');
+    expect(stepKind(yellow(0), blue(1, 'upper'))).toBe('corner');
+    expect(stepKind(yellow(0), yellow(3))).toBeNull();
+    expect(pathProblems(yellow(9), [blue(9, 'upper'), green(8, 'upper'), green(6, 'upper'), green(4, 'upper'), blue(3, 'upper'), yellow(2)])).toEqual([]);
+    expect(pathProblems(yellow(0), [])).toEqual([]);
+    expect(pathProblems(yellow(0), [blue(1, 'upper'), yellow(2)])).toEqual(['Step 2 is a second diagonal step; a pivot may take one.']);
+    expect(pathProblems(yellow(0), [purple('upper')])).toEqual(['Step 1: purple(upper) does not touch A(yellow).']);
   });
 
   it('every window reaches every other in at most nine steps', () => {

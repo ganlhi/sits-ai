@@ -59,17 +59,17 @@ A ship copies its class when it is added, so editing the library never changes a
 
 A table aid for your own ships, in the **AVID helper** tab, or from a game with the **AVID**
 button beside a ship's name, which opens it with that ship's markers and ratings filled in and a
-way back to the game. Give a ship's Forward and Top markers as they are now, tick *pivots* and say where Forward goes at End of Turn, how many
-windows the pivot costs and where Forward is at the Midpoint, and give the roll as "N windows to
-port or starboard". A pivot is a walk on the card from window to touching window, detours
-allowed, with at most one diagonal step (yellow to the blue window one column over); half of it
-and half of the roll, rounded down, are done at the Midpoint. The tab lists, for the Midpoint
-and for End of Turn, every window that may hold the Top marker — three windows from the new
-Forward, best fit to the exact attitude first — and the Port, Starboard, Aft and Bottom windows
-that go with each. Where the exact Top falls between two windows both are listed; a Top on the
-spine between two green windows is called out. It warns when the windows entered cannot reach
-the Midpoint and End of Turn windows, when the Midpoint is too far along for its half, and, if
-you enter the ratings, when the plan costs more windows than the ship has.
+way back to the game. Give a ship's Forward and Top markers as they are now, tick *pivots* and
+walk its Forward along the card one window at a time — the list offers only the windows touching
+the last one, with the diagonal steps (yellow to the blue window one column over) in their own
+group, greyed once the path has used its one — and give the roll as "N windows to port or
+starboard". The path's cost is its number of steps; half of it and half of the roll, rounded
+down, are done at the Midpoint, which the chain marks. The tab lists, for the Midpoint and for
+End of Turn, every window that may hold the Top marker — three windows from the new Forward, best
+fit to the exact attitude first, rotated window to window along the path entered — and the Port,
+Starboard, Aft and Bottom windows that go with each. Where the exact Top falls between two windows
+both are listed; a Top on the spine between two green windows is called out. If you enter the
+ratings it warns when the plan costs more windows than the ship has.
 
 ## How the opponent plots
 

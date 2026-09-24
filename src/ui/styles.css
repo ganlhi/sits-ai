@@ -527,3 +527,60 @@ details.tool summary {
 .shift-done p {
   margin: 0 0 6px;
 }
+
+/* AVID helper: the pivot path as a chain of chips */
+.path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  padding: 6px 0;
+}
+
+.path .leg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.path .chip {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.path .chip.start {
+  border-style: dashed;
+  color: var(--muted);
+}
+
+.path button.chip:hover {
+  border-color: var(--accent);
+}
+
+.path .arrow {
+  color: var(--muted);
+}
+
+.path .arrow.corner {
+  color: var(--accent);
+  font-weight: bold;
+}
+
+.path .arrow.bad {
+  color: var(--accent);
+  text-decoration: line-through;
+}
+
+.path .mid {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  border-left: 2px solid var(--accent);
+  padding-left: 6px;
+}
