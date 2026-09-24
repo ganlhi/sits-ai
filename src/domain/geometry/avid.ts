@@ -154,3 +154,29 @@ export function windowDistance(a: AvidWindow, b: AvidWindow): number {
 export function windowsAtDistance(from: AvidWindow, n: number): AvidWindow[] {
   return ALL_WINDOWS.filter((w) => windowDistance(from, w) === n);
 }
+
+/** The window's extent on the card: pitch band and azimuth span, degrees. Purple spans every azimuth. */
+export function windowBounds(w: AvidWindow): { readonly pitchMin: number; readonly pitchMax: number; readonly azCentre: number; readonly azHalf: number } {
+  const sign = w.ring !== 'yellow' && w.hemi === 'lower' ? -1 : 1;
+  const band = (lo: number, hi: number) => (sign > 0 ? { pitchMin: lo, pitchMax: hi } : { pitchMin: -hi, pitchMax: -lo });
+  switch (w.ring) {
+    case 'yellow':
+      return { pitchMin: -15, pitchMax: 15, azCentre: w.az * 30, azHalf: 15 };
+    case 'blue':
+      return { ...band(15, 45), azCentre: w.az * 30, azHalf: 15 };
+    case 'green':
+      return { ...band(45, 75), azCentre: w.az * 30, azHalf: 30 };
+    case 'purple':
+      return { ...band(75, 90), azCentre: 0, azHalf: 180 };
+  }
+}
+
+/** The point of window `w` nearest to direction `v`: `v` itself when it lies in the window, else clamped to the window's edge. */
+export function clampToWindow(v: Vec3, w: AvidWindow): Vec3 {
+  const b = windowBounds(w);
+  const pitch = Math.max(b.pitchMin, Math.min(b.pitchMax, pitchDeg(v)));
+  if (b.azHalf >= 180) return fromAzPitch(azimuthDeg(v), pitch);
+  const rel = ((azimuthDeg(v) - b.azCentre + 540) % 360) - 180;
+  const az = b.azCentre + Math.max(-b.azHalf, Math.min(b.azHalf, rel));
+  return fromAzPitch(az, pitch);
+}

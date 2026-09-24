@@ -286,7 +286,8 @@ export function AvidHelperScreen({ ship, onBack }: AvidHelperScreenProps = {}) {
             <StepTable title="At End of Turn" step={trace.endOfTurn} when="With the pivot and roll complete," />
             <p className="note">
               The other markers follow from Forward and the Top chosen: Port and Starboard are three windows from Forward, Aft and Bottom opposite Forward and Top. The attitude is rotated
-              window to window along the path entered, so a detour leans the Top the way the real path does.
+              along the nose's path pulled taut through the windows entered: a path round the pole skirts it rather than circling it. Which side of the pole the path takes, or whether it
+              goes through purple, can still lean the Top a window along the same column, as it would on the ship.
             </p>
           </div>
         </div>

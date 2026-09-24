@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { LEVEL_ATTITUDE, attitudeFromWindows, markers } from './attitude';
-import { blue, green, purple, windowDistance, windowLabel, windowsEqual, yellow, type AvidWindow } from './avid';
-import { halves, topCandidates, traceManeuver } from './maneuverTrace';
+import { blue, green, purple, windowDirection, windowDistance, windowLabel, windowsEqual, yellow, type AvidWindow } from './avid';
+import { halves, nosePath, topCandidates, traceManeuver } from './maneuverTrace';
+import { azimuthDeg, pitchDeg } from './vec3';
 
 const labels = (ws: readonly { window: AvidWindow }[]) => ws.map((c) => windowLabel(c.window));
 
@@ -87,6 +88,34 @@ describe('tracing a maneuver on the AVID', () => {
     expect(windowDistance(t.midpoint.top[0]!.window, green(6, 'upper'))).toBe(3);
     for (const c of t.endOfTurn.top) expect(windowDistance(c.window, yellow(2))).toBe(3);
     expect(traceManeuver(rolled, path, null).warnings).toEqual([]);
+  });
+
+  it("the screenshot's pivot: E/F with Top at D, up and over the D side to B — Top D(blue, lower) at D(green), C/D(yellow) at the end", () => {
+    const start = attitudeFromWindows(yellow(9), yellow(6));
+    const viaD = [blue(9, 'upper'), green(8, 'upper'), green(6, 'upper'), green(4, 'upper'), blue(3, 'upper'), yellow(2)];
+    const t = traceManeuver(start, viaD, null);
+    expect(windowLabel(t.midpoint.forward)).toBe('D(green, upper)');
+    expect(labels(t.midpoint.top)[0]).toBe('D(blue, lower)');
+    expect(windowLabel(t.endOfTurn.forward)).toBe('B(yellow)');
+    expect(labels(t.endOfTurn.top)[0]).toBe('C/D(yellow)');
+    // Written through purple, or round the A side, the nose passes the pole on the ship's Bottom side instead of its Top
+    // side: a half turn about an axis 15° off the Top axis moves the Top 30°, so the Top ends higher, not lower.
+    const viaPurple = [blue(9, 'upper'), green(10, 'upper'), purple('upper'), green(2, 'upper'), blue(3, 'upper'), yellow(2)];
+    const viaA = [blue(9, 'upper'), green(10, 'upper'), green(0, 'upper'), green(2, 'upper'), blue(3, 'upper'), yellow(2)];
+    for (const path of [viaPurple, viaA]) {
+      const best = traceManeuver(start, path, null).endOfTurn.top[0]!.window;
+      expect(windowDistance(best, yellow(2))).toBe(3);
+      expect(best.ring === 'yellow' || best.hemi === 'upper').toBe(true);
+    }
+  });
+
+  it('the nose path is pulled taut through the windows: level steps stay on the horizon, a detour round the pole hugs it', () => {
+    const level = nosePath(windowDirection(yellow(0)), [yellow(1), yellow(2), yellow(3)]);
+    for (const p of level) expect(Math.abs(pitchDeg(p))).toBeLessThan(1e-6);
+    expect(azimuthDeg(level[1]!)).toBeCloseTo(60, 5);
+    const over = nosePath(windowDirection(yellow(9)), [blue(9, 'upper'), green(8, 'upper'), green(6, 'upper'), green(4, 'upper'), blue(3, 'upper'), yellow(2)]);
+    expect(pitchDeg(over[2]!)).toBeCloseTo(75, 3); // D(green) is crossed at its edge nearest the pole
+    expect(over).toHaveLength(6);
   });
 
   it('a step to a window that does not touch, or a second diagonal, is reported but still traced', () => {

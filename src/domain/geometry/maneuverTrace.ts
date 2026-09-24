@@ -12,10 +12,10 @@
  * falls between two windows both are offered; a Top on the spine between two green windows
  * (B2.143) is called out.
  */
-import { type Attitude, attitudeFromWindows, markers, pivotTowards, roll, type Markers, type RollDirection } from './attitude';
-import { directionToWindow, green, reciprocalWindow, windowDirection, windowsAtDistance, type AvidWindow } from './avid';
+import { type Attitude, attitudeFromWindows, markers, pivotToDirection, roll, type Markers, type RollDirection } from './attitude';
+import { clampToWindow, directionToWindow, green, reciprocalWindow, windowDirection, windowsAtDistance, type AvidWindow } from './avid';
 import { pathProblems } from './avidGraph';
-import { angleBetween, azimuthDeg } from './vec3';
+import { add, angleBetween, azimuthDeg, length, normalize, type Vec3 } from './vec3';
 
 export interface RollPlan {
   readonly windows: number;
@@ -52,8 +52,11 @@ export interface ManeuverTrace {
   readonly warnings: readonly string[];
 }
 
-/** A Top within this many degrees of a window's centre may be placed there: a window is 30° wide, so anything near the edge fits two. */
-export const TOP_TOLERANCE_DEG = 20;
+/**
+ * Placements within this many degrees of the best fit are offered as well: a window is 30° wide,
+ * so a Top near an edge fits two, and when no window fits closely the near ties are the choice.
+ */
+export const TOP_TOLERANCE_DEG = 12;
 
 /** Half of a maneuver, rounded down: what is done at the Midpoint, and what remains for End of Turn. */
 export const halves = (windows: number): [number, number] => [Math.floor(windows / 2), windows - Math.floor(windows / 2)];
@@ -68,8 +71,8 @@ export function topCandidates(forward: AvidWindow, exact: Attitude): TopCandidat
   const all = windowsAtDistance(forward, 3)
     .map((w) => ({ window: w, offsetDeg: angleBetween(windowDirection(w), exact.top), markers: { ...markers(attitudeFromWindows(forward, w)), forward, top: w, bottom: reciprocalWindow(w) } }))
     .sort((a, b) => a.offsetDeg - b.offsetDeg);
-  const within = all.filter((c) => c.offsetDeg <= TOP_TOLERANCE_DEG);
-  return within.length ? within : all.slice(0, 1);
+  const best = all[0]?.offsetDeg ?? 0;
+  return all.filter((c) => c.offsetDeg <= best + TOP_TOLERANCE_DEG);
 }
 
 /** When the exact Top is in the green ring and halfway between two of its windows, the spine they share. */
@@ -88,6 +91,30 @@ function step(forward: AvidWindow, exact: Attitude): TraceStep {
 }
 
 /**
+ * Where the nose actually passes: the shortest smooth path from the current Forward that visits
+ * each window of `path` in turn and ends at the last window's centre. A window is a region of
+ * the card, not a point: a path written round the pole through the green windows is a nose
+ * that skirts the pole, not one that circles it at sixty degrees window centre by window
+ * centre, which would twist the frame a window further. Pulling the path taut through the
+ * regions reads the card that way. Iterative: each waypoint moves to the point of its window
+ * nearest the arc between its neighbours.
+ */
+export function nosePath(start: Vec3, path: readonly AvidWindow[], iterations = 40): Vec3[] {
+  const pts = path.map((w) => windowDirection(w));
+  if (pts.length < 2) return pts;
+  for (let it = 0; it < iterations; it++) {
+    for (let i = 0; i < pts.length - 1; i++) {
+      const prev = i === 0 ? start : pts[i - 1]!;
+      const next = pts[i + 1]!;
+      const sum = add(prev, next);
+      if (length(sum) < 1e-6) continue;
+      pts[i] = clampToWindow(normalize(sum), path[i]!);
+    }
+  }
+  return pts;
+}
+
+/**
  * Trace a plan. `path` is the windows Forward walks through after its current one, in order;
  * empty or null for no pivot.
  */
@@ -98,13 +125,14 @@ export function traceManeuver(start: Attitude, path: readonly AvidWindow[] | nul
   const pivotSplit = halves(steps.length);
   const rollSplit = halves(r ? r.windows : 0);
   const warnings = pathProblems(m0.forward, steps);
+  const nose = nosePath(start.forward, steps);
 
   let att = start;
-  for (const w of steps.slice(0, pivotSplit[0])) att = pivotTowards(att, w, 1);
+  for (const p of nose.slice(0, pivotSplit[0])) att = pivotToDirection(att, p, 1);
   if (r && rollSplit[0] > 0) att = roll(att, rollSplit[0], r.direction);
   const midpoint = step(steps[pivotSplit[0] - 1] ?? m0.forward, att);
 
-  for (const w of steps.slice(pivotSplit[0])) att = pivotTowards(att, w, 1);
+  for (const p of nose.slice(pivotSplit[0])) att = pivotToDirection(att, p, 1);
   if (r && rollSplit[1] > 0) att = roll(att, rollSplit[1], r.direction);
   const endOfTurn = step(steps.at(-1) ?? m0.forward, att);
 

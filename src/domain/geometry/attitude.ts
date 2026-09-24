@@ -95,7 +95,11 @@ export function roll(a: Attitude, windows: number, direction: RollDirection): At
  * is done over the top.
  */
 export function pivotTowards(a: Attitude, target: AvidWindow, fraction = 1): Attitude {
-  const t = windowDirection(target);
+  return pivotToDirection(a, windowDirection(target), fraction);
+}
+
+/** Pivot so that Forward points along unit vector `t`, by the minimal rotation; no roll about Forward. */
+export function pivotToDirection(a: Attitude, t: Vec3, fraction = 1): Attitude {
   const angle = angleBetween(a.forward, t);
   if (angle < 1e-9) return a;
   const axisRaw = angle > 180 - 1e-6 ? a.top : cross(a.forward, t);
