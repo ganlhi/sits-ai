@@ -3,7 +3,7 @@ import { CUBE_ORIGIN, DIRECTION_CUBE, LEVEL_ATTITUDE, attitudeFromWindows, beari
 import { BUILT_IN_CLASSES, FULL_EFFECTIVENESS, UNDAMAGED, ratingsOf, uniformBda, type Game, type Ship } from '../game';
 import { effectiveWeights, goalRange, postureFor } from './doctrine';
 import { bestVolley, impactFacing, salvoDamage, vulnerability } from './evaluate';
-import { orderSheet, orderSheetText } from './orderSheet';
+import { markerPaths, orderSheet, orderSheetText } from './orderSheet';
 import { generateCandidates, planFire, planMovement, planOrders } from './plan';
 import { displacementNotice } from './orderSheet';
 
@@ -253,6 +253,35 @@ describe('planning', () => {
     expect(text).toContain('Midpoint marker at');
     expect(text).toContain('At End of Turn: Forward');
     expect(orderSheet(r, r.ships[1]!)).toBeNull();
+  });
+
+  it('the marker paths start at the markers now, pause at the Midpoint and end at End of Turn', () => {
+    const r = playTurn(duel);
+    const s = orderSheet(r, r.ships[0]!)!;
+    const paths = markerPaths(s);
+    if (s.pivotPath.length) {
+      expect(paths.forward!.windows[0]).toEqual(s.attitudeNow.forward);
+      expect(paths.forward!.windows).toHaveLength(s.pivotPath.length + 1);
+      expect(paths.forward!.pauseAfter).toBe(s.pivotSplit[0]);
+      expect(paths.forward!.windows[paths.forward!.pauseAfter]).toEqual(s.attitudeAtMidpoint.forward);
+    } else expect(paths.forward).toBeNull();
+    if (paths.top) {
+      expect(paths.top.windows[0]).toEqual(s.attitudeNow.top);
+      expect(paths.top.windows[paths.top.pauseAfter]).toEqual(s.attitudeAtMidpoint.top);
+      expect(paths.top.windows.at(-1)).toEqual(s.attitudeAtEot.top);
+    } else {
+      expect(s.attitudeAtEot.top).toEqual(s.attitudeNow.top);
+      expect(s.attitudeAtMidpoint.top).toEqual(s.attitudeNow.top);
+    }
+  });
+
+  it('a Top that only moves after the Midpoint pauses where it starts', () => {
+    const base = orderSheet(playTurn(duel), playTurn(duel).ships[0]!)!;
+    const now = markers(LEVEL_ATTITUDE);
+    const sheet = { ...base, pivotPath: [], pivotSplit: [0, 0] as const, attitudeNow: now, attitudeAtMidpoint: now, attitudeAtEot: markers(attitudeFromWindows(yellow(0), yellow(3))) };
+    const paths = markerPaths(sheet);
+    expect(paths.forward).toBeNull();
+    expect(paths.top).toEqual({ windows: [purple('upper'), yellow(3)], pauseAfter: 0 });
   });
 
   it('never writes a salvo the card has no range for, even closing fast from the edge of missile reach', () => {

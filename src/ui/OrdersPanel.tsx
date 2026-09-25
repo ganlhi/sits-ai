@@ -1,7 +1,9 @@
 /** The AI's order sheets for the turn, in the book's notation, with the salvo card entries. */
 import { windowLabel } from '../domain/geometry';
-import { TIMING_LABEL, orderSheet, orderSheetText } from '../domain/ai';
+import { TIMING_LABEL, markerPaths, orderSheet, orderSheetText } from '../domain/ai';
 import { aiShips, formatPosition, isOutOfAction, type Game, type Ship } from '../domain/game';
+import { type AvidPath } from './AvidCard';
+import { AvidFigure } from './AvidFigure';
 
 function Sheet({ game, ship }: { game: Game; ship: Ship }) {
   const sheet = orderSheet(game, ship);
@@ -15,6 +17,24 @@ function Sheet({ game, ship }: { game: Game; ship: Ship }) {
       </article>
     );
   }
+  const paths = markerPaths(sheet);
+  const plot: AvidPath[] = [];
+  if (paths.forward) plot.push({ ...paths.forward, kind: 'forward' });
+  if (paths.top) plot.push({ ...paths.top, kind: 'top' });
+  const key = (
+    <p className="plot-key">
+      <span>
+        <span className="swatch forward" />
+        Forward (pivot)
+      </span>
+      <span>
+        <span className="swatch top" />
+        Top (roll)
+      </span>
+      <span>❚❚ at the Midpoint</span>
+      <span>dashed: into the lower half</span>
+    </p>
+  );
   const copy = () => {
     void navigator.clipboard?.writeText(orderSheetText(sheet, ship.name));
   };
@@ -29,21 +49,31 @@ function Sheet({ game, ship }: { game: Game; ship: Ship }) {
           Copy as text
         </button>
       </div>
-      <ol>
-        {sheet.maneuver.map((l, i) => (
-          <li key={i}>{l}</li>
-        ))}
-        <li>
-          Markers: Midpoint at <b>{formatPosition(sheet.midpoint)}</b>, End of Turn at <b>{formatPosition(sheet.endOfTurn)}</b>
-          {sheet.displacement ? ` (EoT displaced ${sheet.displacement})` : ''}.
-        </li>
-      </ol>
-      <div className="attitudes">
-        <div>
-          <span className="note">At the Midpoint:</span> Forward <b>{windowLabel(sheet.attitudeAtMidpoint.forward)}</b>, Top <b>{windowLabel(sheet.attitudeAtMidpoint.top)}</b>
-        </div>
-        <div>
-          <span className="note">At End of Turn:</span> Forward <b>{windowLabel(sheet.attitudeAtEot.forward)}</b>, Top <b>{windowLabel(sheet.attitudeAtEot.top)}</b>
+      <div className="avid-field">
+        <div className="avid-row compact">
+          <div>
+            <AvidFigure title={`${ship.name}: markers now, with the paths Forward and Top take this turn`} markers={sheet.attitudeNow} paths={plot} caption={key} />
+            {key}
+          </div>
+          <div>
+            <ol>
+              {sheet.maneuver.map((l, i) => (
+                <li key={i}>{l}</li>
+              ))}
+              <li>
+                Markers: Midpoint at <b>{formatPosition(sheet.midpoint)}</b>, End of Turn at <b>{formatPosition(sheet.endOfTurn)}</b>
+                {sheet.displacement ? ` (EoT displaced ${sheet.displacement})` : ''}.
+              </li>
+            </ol>
+            <div className="attitudes">
+              <div>
+                <span className="note">At the Midpoint:</span> Forward <b>{windowLabel(sheet.attitudeAtMidpoint.forward)}</b>, Top <b>{windowLabel(sheet.attitudeAtMidpoint.top)}</b>
+              </div>
+              <div>
+                <span className="note">At End of Turn:</span> Forward <b>{windowLabel(sheet.attitudeAtEot.forward)}</b>, Top <b>{windowLabel(sheet.attitudeAtEot.top)}</b>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
       {sheet.launches.length === 0 ? (

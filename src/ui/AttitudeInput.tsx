@@ -1,8 +1,12 @@
 /**
  * Orientation as the two markers the player reads off the AVID: Forward, then Top among the
- * windows a quarter turn away from it.
+ * windows a quarter turn away from it. Entered on the card — a click places Forward, a second
+ * click on the same window drops it to the lower half, and pips mark the windows Top may take
+ * — or through the two selects, which say the same thing in the book's notation.
  */
 import { ALL_WINDOWS, attitudeFromWindows, markers, windowDistance, windowKey, windowLabel, windowsAtDistance, windowsEqual, type Attitude, type AvidWindow } from '../domain/geometry';
+import { type AvidChoice } from './AvidCard';
+import { AvidFigure } from './AvidFigure';
 
 const byKey = (key: string, from: readonly AvidWindow[]): AvidWindow | undefined => from.find((w) => windowKey(w) === key);
 
@@ -27,15 +31,31 @@ export function nearestTop(forward: AvidWindow, previous: AvidWindow): AvidWindo
   return best;
 }
 
+const samePrinted = (a: AvidWindow, b: AvidWindow): boolean => a.ring === b.ring && (a.ring === 'purple' || b.ring === 'purple' || a.az === b.az);
+
+/** The Forward a click on a printed window means: the window in Forward's current half, or the other half when Forward is already there. */
+export function forwardFromClick(printed: AvidWindow, current: AvidWindow): AvidWindow {
+  if (printed.ring === 'yellow') return printed;
+  const hemi = current.ring === 'yellow' ? 'upper' : current.hemi;
+  if (samePrinted(printed, current)) return { ...printed, hemi: hemi === 'upper' ? 'lower' : 'upper' };
+  return { ...printed, hemi };
+}
+
 export interface AttitudeInputProps {
   readonly value: Attitude;
   readonly onChange: (a: Attitude) => void;
+  /** Leave the card out and keep the selects alone. */
+  readonly card?: boolean;
+  /** Show the markers but take no clicks: the report is locked. */
+  readonly disabled?: boolean;
 }
 
-export function AttitudeInput({ value, onChange }: AttitudeInputProps) {
+export function AttitudeInput({ value, onChange, card = true, disabled = false }: AttitudeInputProps) {
   const m = markers(value);
   const tops = topOptions(m.forward, m.top);
-  return (
+  const choices: AvidChoice[] = disabled ? [] : tops.filter((w) => !windowsEqual(w, m.top)).map((w) => ({ window: w, kind: 'alt', title: `Top in ${windowLabel(w)}` }));
+
+  const selects = (
     <div className="grid-2">
       <div className="field">
         <label>Forward</label>
@@ -68,6 +88,34 @@ export function AttitudeInput({ value, onChange }: AttitudeInputProps) {
             </option>
           ))}
         </select>
+      </div>
+    </div>
+  );
+
+  if (!card) return selects;
+  return (
+    <div className="avid-field">
+      <div className="avid-row">
+        <AvidFigure
+          className={disabled ? undefined : 'clickable'}
+          title={disabled ? 'Orientation' : 'Orientation: click a window to point Forward there, again for the lower half; a pip moves Top'}
+          markers={m}
+          choices={choices}
+          onPick={disabled ? undefined : (top) => onChange(attitudeFromWindows(m.forward, top))}
+          onWindow={
+            disabled
+              ? undefined
+              : (printed) => {
+                  const fwd = forwardFromClick(printed, m.forward);
+                  onChange(attitudeFromWindows(fwd, nearestTop(fwd, m.top)));
+                }
+          }
+          caption={disabled ? undefined : <span className="note">Click a window to point Forward there, the same window again for the lower half. The pips are the other windows Top may take.</span>}
+        />
+        <div>
+          {selects}
+          {!disabled && <span className="note">Click a window to point Forward there, the same window again for the lower half. The pips are the other windows Top may take.</span>}
+        </div>
       </div>
     </div>
   );

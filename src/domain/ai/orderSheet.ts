@@ -3,7 +3,7 @@
  * to execute it on the table — where the markers go, the attitude to set at the Midpoint and
  * at End of Turn, and the salvo card entries for each launch.
  */
-import { bearing, formatVelocity, impactWindow, maneuverTrace, markers, stepKind, velocityIsZero, windowLabel, type Markers, type Position } from '../geometry';
+import { bearing, formatVelocity, impactWindow, maneuverTrace, markers, stepKind, velocityIsZero, windowLabel, windowsEqual, type AvidWindow, type Markers, type Position } from '../geometry';
 import { BAND_LABELS, MOUNT_NAMES, bandFor, formatPosition, shipById, shipMotion, type Game, type SalvoTiming, type Ship } from '../game';
 
 export interface SalvoLine {
@@ -30,8 +30,13 @@ export interface OrderSheet {
   readonly endOfTurn: Position;
   /** How the EoT marker was displaced by thrust, or null when it was not. */
   readonly displacement: string | null;
+  /** The markers as reported at the start of the turn, where the plot starts from. */
+  readonly attitudeNow: Markers;
   readonly attitudeAtMidpoint: Markers;
   readonly attitudeAtEot: Markers;
+  /** The windows Forward walks through, and how many of those steps are done at the Midpoint. */
+  readonly pivotPath: readonly AvidWindow[];
+  readonly pivotSplit: readonly [number, number];
   readonly launches: readonly LaunchSheet[];
   readonly rationale: string;
 }
@@ -107,8 +112,11 @@ export function orderSheet(game: Game, ship: Ship): OrderSheet | null {
     midpoint: motion.midpoint,
     endOfTurn: motion.endOfTurn,
     displacement: velocityIsZero(motion.displacement) ? null : formatVelocity(motion.displacement),
+    attitudeNow: m0,
     attitudeAtMidpoint: trace.midpoint.top[0]?.markers ?? markers(trace.midpoint.exact),
     attitudeAtEot: trace.endOfTurn.top[0]?.markers ?? markers(trace.endOfTurn.exact),
+    pivotPath: path,
+    pivotSplit: trace.pivotSplit,
     launches,
     rationale: orders.rationale,
   };
@@ -127,4 +135,27 @@ export function orderSheetText(sheet: OrderSheet, shipName: string): string {
   if (!sheet.launches.length) lines.push('No missile launch.');
   lines.push(sheet.rationale);
   return lines.join('\n');
+}
+
+/** A marker's journey over the turn, drawn on the card: the windows it passes, and after how many of them it pauses at the Midpoint. */
+export interface MarkerPath {
+  readonly windows: readonly AvidWindow[];
+  readonly pauseAfter: number;
+}
+
+/**
+ * The paths the Forward and Top markers take on the card: Forward along the pivot path, Top
+ * from its window now to where it sits at the Midpoint and at End of Turn. A marker that does
+ * not move has no path; a leg on which it stays put is dropped, the pause kept where it is.
+ */
+export function markerPaths(sheet: OrderSheet): { readonly forward: MarkerPath | null; readonly top: MarkerPath | null } {
+  const forward = sheet.pivotPath.length ? { windows: [sheet.attitudeNow.forward, ...sheet.pivotPath], pauseAfter: sheet.pivotSplit[0] } : null;
+  const stops = [sheet.attitudeNow.top, sheet.attitudeAtMidpoint.top, sheet.attitudeAtEot.top];
+  const windows: AvidWindow[] = [stops[0]!];
+  let pauseAfter = 0;
+  stops.forEach((w, i) => {
+    if (i > 0 && !windowsEqual(w, windows.at(-1)!)) windows.push(w);
+    if (i === 1) pauseAfter = windows.length - 1;
+  });
+  return { forward, top: windows.length > 1 ? { windows, pauseAfter } : null };
 }

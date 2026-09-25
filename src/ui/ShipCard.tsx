@@ -1,8 +1,9 @@
 /**
  * One ship's report for the turn: what the table shows. Everything defaults to what the app
  * expects (an AI ship where its orders put it, a player ship drifted along its vectors), so the
- * player only edits what differs.
+ * player only edits what differs. The card is folded to its name and class until opened.
  */
+import { useState } from 'react';
 import { MOUNTS, positionEquals, type Position } from '../domain/geometry';
 import {
   BDA_LABELS,
@@ -80,154 +81,164 @@ export function ShipCard({ ship, update, locked = false, onAvidHelper }: ShipCar
   const effValid = draftToEff(eff) !== null;
   const ratValid = draftToRatings(rat) !== null;
   const maxOf: Record<(typeof RATING_KEYS)[number], number> = { thrust: cls.maxThrust, pivot: cls.maxPivot, roll: cls.maxRoll };
+  const [open, setOpen] = useState(false);
 
   return (
-    <article className={`ship-card side-${ship.side}${isOutOfAction(ship) ? ' out' : ''}`}>
-      <fieldset className="plain" disabled={locked}>
-        <header>
-          <h3>{ship.name}</h3>
-          {onAvidHelper && (
-            // a link, not a button: the fieldset is disabled once the report is locked, and the helper must stay reachable
-            <a
-              className="button"
-              href="#avid"
-              title="Open the AVID helper with this ship's markers"
-              onClick={(e) => {
-                e.preventDefault();
-                onAvidHelper(ship);
-              }}
-            >
-              AVID
-            </a>
-          )}
-          <span className="note">
-            {cls.name} · cost {cls.baseCost}
+    <article className={`ship-card side-${ship.side}${isOutOfAction(ship) ? ' out' : ''}${open ? ' open' : ''}`}>
+      {/* outside the fieldset: the card must open and close once the report is locked */}
+      <div className="row card-title">
+        <button type="button" className="fold" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <span className="chev" aria-hidden="true">
+            {open ? '▾' : '▸'}
           </span>
-          <span className="tag">{ship.side}</span>
-          <div className="seg" role="group" aria-label="controller">
-            {CONTROLLERS.map((c: Controller) => (
-              <button key={c} type="button" aria-pressed={ship.controller === c} onClick={() => report({ controller: c })}>
-                {c}
-              </button>
-            ))}
-          </div>
-          {ship.controller === 'ai' && (
-            <select value={ship.doctrine} aria-label="doctrine" onChange={(e) => report({ doctrine: e.target.value as Doctrine })}>
-              {DOCTRINES.map((d) => (
-                <option key={d} value={d}>
-                  {DOCTRINE_LABELS[d]}
-                </option>
-              ))}
-            </select>
-          )}
-          <span className="grow" />
-          <button
-            type="button"
-            onClick={() => {
-              if (window.confirm(`Remove ${ship.name} from the game?`)) update((g) => removeShip(g, ship.id));
-            }}
-          >
-            Remove
-          </button>
-        </header>
-
-        <div className="report-grid">
-          <div>
-            <div className="label note">Position</div>
-            <HexOffsetInput
-              value={pos}
-              onChange={(d) => {
-                setPos(d);
-                const p = draftToPosition(d);
-                if (p && !positionEquals(p, ship.position)) report({ position: p });
-              }}
-            />
-            {!posValid && <span className="field-msg">whole numbers only</span>}
-          </div>
-          <div>
-            <div className="label note">Orientation</div>
-            <AttitudeInput value={ship.attitude} onChange={(attitude) => report({ attitude })} />
-          </div>
-          <div>
-            <div className="label note">Vectors</div>
-            <VelocityInput
-              value={vel}
-              onChange={(d) => {
-                setVel(d);
-                const v = draftToVelocity(d);
-                if (v && !velocityEquals(v, ship.velocity)) report({ velocity: v });
-              }}
-            />
-            {!velValid && <span className="field-msg">whole numbers, 0 or more</span>}
-          </div>
-          <div>
-            <div className="label note">Ratings this turn</div>
-            <div className="row">
-              {RATING_KEYS.map((k) => (
-                <label key={k} className="vec-input pct" title={`class maximum ${maxOf[k]}`}>
-                  {k}
-                  <input
-                    value={rat[k]}
-                    inputMode="numeric"
-                    aria-label={`${k} rating`}
-                    onChange={(e) => {
-                      const d = { ...rat, [k]: e.target.value };
-                      setRat(d);
-                      const parsed = draftToRatings(d);
-                      if (parsed && !ratingsEqual(parsed, ship.ratings)) report({ ratings: parsed });
-                    }}
-                  />
-                </label>
+          {ship.name}
+        </button>
+        <span className="note">{cls.name}</span>
+      </div>
+      {open && (
+        <fieldset className="plain" disabled={locked}>
+          <header>
+            {onAvidHelper && (
+              // a link, not a button: the fieldset is disabled once the report is locked, and the helper must stay reachable
+              <a
+                className="button"
+                href="#avid"
+                title="Open the AVID helper with this ship's markers"
+                onClick={(e) => {
+                  e.preventDefault();
+                  onAvidHelper(ship);
+                }}
+              >
+                AVID
+              </a>
+            )}
+            <span className="note">cost {cls.baseCost}</span>
+            <span className="tag">{ship.side}</span>
+            <div className="seg" role="group" aria-label="controller">
+              {CONTROLLERS.map((c: Controller) => (
+                <button key={c} type="button" aria-pressed={ship.controller === c} onClick={() => report({ controller: c })}>
+                  {c}
+                </button>
               ))}
             </div>
-            {!ratValid && <span className="field-msg">whole numbers, 0 or more</span>}
-            <table className="list side-table">
-              <thead>
-                <tr>
-                  <th>Side</th>
-                  <th>Battle damage assessment</th>
-                  <th>Effectiveness (%)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {MOUNTS.map((m) => (
-                  <tr key={m}>
-                    <td title={MOUNT_NAMES[m]}>{MOUNT_SHORT[m]}</td>
-                    <td>
-                      <select value={ship.bda[m]} aria-label={`${m} battle damage assessment`} onChange={(e) => report({ bda: { ...ship.bda, [m]: e.target.value as Bda } })}>
-                        {BDA_LEVELS.map((b) => (
-                          <option key={b} value={b}>
-                            {BDA_LABELS[b]}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <input
-                        className="pct"
-                        value={eff[m]}
-                        inputMode="numeric"
-                        aria-label={`${m} effectiveness`}
-                        onChange={(e) => {
-                          const d = { ...eff, [m]: e.target.value };
-                          setEff(d);
-                          const parsed = draftToEff(d);
-                          if (parsed && !effEquals(parsed, ship.effectiveness)) report({ effectiveness: parsed });
-                        }}
-                      />
-                    </td>
-                  </tr>
+            {ship.controller === 'ai' && (
+              <select value={ship.doctrine} aria-label="doctrine" onChange={(e) => report({ doctrine: e.target.value as Doctrine })}>
+                {DOCTRINES.map((d) => (
+                  <option key={d} value={d}>
+                    {DOCTRINE_LABELS[d]}
+                  </option>
                 ))}
-              </tbody>
-            </table>
-            {!effValid && <span className="field-msg">effectiveness: 0 to 100</span>}
-            <label className="row">
-              <input type="checkbox" checked={ship.outOfAction} onChange={(e) => report({ outOfAction: e.target.checked })} />
-              Out of action (destroyed, surrendered): drifts, neither fires nor is fired at
-            </label>
+              </select>
+            )}
+            <span className="grow" />
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm(`Remove ${ship.name} from the game?`)) update((g) => removeShip(g, ship.id));
+              }}
+            >
+              Remove
+            </button>
+          </header>
+
+          <div className="report-grid">
+            <div>
+              <div className="label note">Position</div>
+              <HexOffsetInput
+                value={pos}
+                onChange={(d) => {
+                  setPos(d);
+                  const p = draftToPosition(d);
+                  if (p && !positionEquals(p, ship.position)) report({ position: p });
+                }}
+              />
+              {!posValid && <span className="field-msg">whole numbers only</span>}
+            </div>
+            <div>
+              <div className="label note">Orientation</div>
+              <AttitudeInput value={ship.attitude} onChange={(attitude) => report({ attitude })} disabled={locked} />
+            </div>
+            <div>
+              <div className="label note">Vectors</div>
+              <VelocityInput
+                value={vel}
+                onChange={(d) => {
+                  setVel(d);
+                  const v = draftToVelocity(d);
+                  if (v && !velocityEquals(v, ship.velocity)) report({ velocity: v });
+                }}
+              />
+              {!velValid && <span className="field-msg">whole numbers, 0 or more</span>}
+            </div>
+            <div>
+              <div className="label note">Ratings this turn</div>
+              <div className="row">
+                {RATING_KEYS.map((k) => (
+                  <label key={k} className="vec-input pct" title={`class maximum ${maxOf[k]}`}>
+                    {k}
+                    <input
+                      value={rat[k]}
+                      inputMode="numeric"
+                      aria-label={`${k} rating`}
+                      onChange={(e) => {
+                        const d = { ...rat, [k]: e.target.value };
+                        setRat(d);
+                        const parsed = draftToRatings(d);
+                        if (parsed && !ratingsEqual(parsed, ship.ratings)) report({ ratings: parsed });
+                      }}
+                    />
+                  </label>
+                ))}
+              </div>
+              {!ratValid && <span className="field-msg">whole numbers, 0 or more</span>}
+              <table className="list side-table">
+                <thead>
+                  <tr>
+                    <th>Side</th>
+                    <th>Battle damage assessment</th>
+                    <th>Effectiveness (%)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {MOUNTS.map((m) => (
+                    <tr key={m}>
+                      <td title={MOUNT_NAMES[m]}>{MOUNT_SHORT[m]}</td>
+                      <td>
+                        <select value={ship.bda[m]} aria-label={`${m} battle damage assessment`} onChange={(e) => report({ bda: { ...ship.bda, [m]: e.target.value as Bda } })}>
+                          {BDA_LEVELS.map((b) => (
+                            <option key={b} value={b}>
+                              {BDA_LABELS[b]}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <input
+                          className="pct"
+                          value={eff[m]}
+                          inputMode="numeric"
+                          aria-label={`${m} effectiveness`}
+                          onChange={(e) => {
+                            const d = { ...eff, [m]: e.target.value };
+                            setEff(d);
+                            const parsed = draftToEff(d);
+                            if (parsed && !effEquals(parsed, ship.effectiveness)) report({ effectiveness: parsed });
+                          }}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!effValid && <span className="field-msg">effectiveness: 0 to 100</span>}
+              <label className="row">
+                <input type="checkbox" checked={ship.outOfAction} onChange={(e) => report({ outOfAction: e.target.checked })} />
+                Out of action (destroyed, surrendered): drifts, neither fires nor is fired at
+              </label>
+            </div>
           </div>
-        </div>
-      </fieldset>
+        </fieldset>
+      )}
     </article>
   );
 }

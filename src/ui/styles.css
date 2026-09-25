@@ -276,6 +276,32 @@ table.list th {
   opacity: 0.6;
 }
 
+.ship-card .card-title {
+  gap: 8px;
+}
+
+.ship-card .fold {
+  border: 0;
+  background: transparent;
+  padding: 2px 0;
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ship-card .fold .chev {
+  color: var(--muted);
+  font-size: 0.8rem;
+  width: 1em;
+}
+
+.ship-card.open .card-title {
+  margin-bottom: 6px;
+}
+
 .ship-card header {
   display: flex;
   align-items: center;
@@ -583,4 +609,334 @@ details.tool summary {
   color: var(--accent);
   border-left: 2px solid var(--accent);
   padding-left: 6px;
+}
+
+/* The AVID card: the printed play aid. The ring colours are the card's and stay light in dark mode. */
+svg.avid {
+  display: block;
+  width: 100%;
+  max-width: 280px;
+  height: auto;
+  --card-yellow: #f7f0a4;
+  --card-blue: #cbe5f4;
+  --card-green: #cfead0;
+  --card-purple: #f3c7ec;
+  --card-hex: #4b5fd3;
+  --card-ink: #1d1d1b;
+  --card-label: #c322b6;
+  user-select: none;
+}
+
+svg.avid .hex {
+  fill: var(--card-hex);
+  stroke: none;
+}
+
+svg.avid .cell {
+  stroke: #8a8a85;
+  stroke-width: 0.8;
+}
+
+svg.avid .cell.yellow {
+  fill: var(--card-yellow);
+}
+
+svg.avid .cell.blue {
+  fill: var(--card-blue);
+}
+
+svg.avid .cell.green {
+  fill: var(--card-green);
+}
+
+svg.avid .cell.purple {
+  fill: var(--card-purple);
+}
+
+svg.avid.clickable .cell {
+  cursor: pointer;
+}
+
+svg.avid.clickable .cell:hover {
+  filter: brightness(0.94);
+}
+
+svg.avid .label {
+  fill: var(--card-label);
+  font-family: inherit;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+  font-weight: 600;
+}
+
+svg.avid .label.edge {
+  font-size: 11px;
+}
+
+svg.avid .label.corner {
+  font-size: 6.5px;
+}
+
+svg.avid .mark {
+  pointer-events: none;
+}
+
+svg.avid .mark .fill {
+  fill: var(--card-ink);
+  stroke: #fff;
+  stroke-width: 1.2;
+  paint-order: stroke;
+}
+
+svg.avid .mark .line {
+  fill: none;
+  stroke: var(--card-ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+svg.avid .mark .ring {
+  fill: rgba(255, 255, 255, 0.55);
+  stroke: var(--card-ink);
+  stroke-width: 1.2;
+}
+
+svg.avid .pip {
+  cursor: pointer;
+}
+
+svg.avid .pip .hit {
+  fill: transparent;
+}
+
+svg.avid .pip .dot {
+  fill: var(--accent);
+  stroke: #fff;
+  stroke-width: 1;
+}
+
+svg.avid .pip .ring {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.2;
+}
+
+svg.avid .pip.diagonal .dot {
+  fill: #fff;
+  stroke: var(--accent);
+  stroke-width: 1.4;
+}
+
+svg.avid .pip.alt .dot {
+  fill: #fff;
+  stroke: var(--card-ink);
+  stroke-width: 1.2;
+}
+
+svg.avid .pip.alt .ring {
+  stroke: var(--card-ink);
+}
+
+svg.avid .pip:hover .dot {
+  r: 4.2;
+}
+
+svg.avid .pip.disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+svg.avid {
+  --trace-forward: var(--accent);
+  --trace-top: #2f6fd6;
+}
+
+svg.avid .trace .leg {
+  fill: none;
+  stroke: var(--trace-forward);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+svg.avid .trace.top .leg {
+  stroke: var(--trace-top);
+}
+
+svg.avid .trace .leg.lower {
+  stroke-dasharray: 3 3;
+}
+
+svg.avid marker.forward path {
+  fill: var(--trace-forward);
+}
+
+svg.avid marker.top path {
+  fill: var(--trace-top);
+}
+
+/* the pause mark: where the marker sits at the Midpoint */
+svg.avid .trace .pause rect {
+  fill: var(--trace-forward);
+  stroke: #fff;
+  stroke-width: 1;
+  paint-order: stroke;
+}
+
+svg.avid .trace.top .pause rect {
+  fill: var(--trace-top);
+}
+
+/* the plot on an order sheet */
+.order-sheet .avid-row {
+  margin: 6px 0;
+}
+
+.plot-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 4px 0 0;
+}
+
+.plot-key .swatch {
+  display: inline-block;
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+.plot-key .swatch.forward {
+  background: var(--accent);
+}
+
+.plot-key .swatch.top {
+  background: #2f6fd6;
+}
+
+.avid-legend {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.avid-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.avid-legend svg.avid {
+  width: 16px;
+  height: 16px;
+}
+
+/* a card with its zoom button, and the dialog that shows it large */
+.avid-figure {
+  position: relative;
+  max-width: 280px;
+}
+
+.avid-figure > .zoom {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 2px 7px;
+  font-size: 1rem;
+  line-height: 1.2;
+  border-radius: 999px;
+  opacity: 0.85;
+}
+
+.avid-figure > .zoom:hover {
+  opacity: 1;
+  border-color: var(--accent);
+}
+
+dialog.avid-dialog {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--panel);
+  color: var(--ink);
+  width: min(96vw, 80vh);
+  max-width: none;
+  max-height: 96vh;
+  box-sizing: border-box;
+}
+
+dialog.avid-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.avid-dialog-body {
+  display: grid;
+  gap: 8px;
+}
+
+.avid-dialog-body svg.avid.big {
+  max-width: none;
+  width: 100%;
+}
+
+.avid-dialog-body .avid-legend,
+.avid-dialog-body .plot-key {
+  font-size: 0.9rem;
+}
+
+/* a card beside its controls; they stack when the container is narrow */
+.avid-field {
+  container-type: inline-size;
+  min-width: 0;
+}
+
+.avid-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 220px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+@container (max-width: 440px) {
+  .avid-row,
+  .avid-row.compact {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* the legend draws with the page ink, not the card's */
+.avid-legend svg.avid .mark .fill {
+  fill: var(--ink);
+  stroke: none;
+}
+
+.avid-legend svg.avid .mark .line,
+.avid-legend svg.avid .mark .ring {
+  stroke: var(--ink);
+  fill: none;
+}
+
+/* a step of the trace: a smaller card, the table scrolling beside it */
+.avid-row.compact {
+  grid-template-columns: minmax(120px, 170px) minmax(0, 1fr);
+}
+
+.avid-row .scroll {
+  overflow-x: auto;
+  min-width: 0;
+}
+
+.avid-row .scroll table.list td,
+.avid-row .scroll table.list th {
+  white-space: nowrap;
 }

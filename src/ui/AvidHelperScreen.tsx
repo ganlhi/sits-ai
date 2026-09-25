@@ -19,6 +19,8 @@ import {
   type TraceStep,
 } from '../domain/geometry';
 import { AttitudeInput } from './AttitudeInput';
+import { AvidLegend, type AvidChoice } from './AvidCard';
+import { AvidFigure } from './AvidFigure';
 
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
 
@@ -37,40 +39,51 @@ export interface AvidHelperScreenProps {
   readonly onBack?: () => void;
 }
 
-function StepTable({ title, step, when }: { title: string; step: TraceStep; when: string }) {
+/** One step of the trace: the card with the markers of the placement chosen, the other placements as pips, and the same as a table. */
+function StepView({ title, step, when }: { title: string; step: TraceStep; when: string }) {
+  const [chosenKey, setChosenKey] = useState<string | null>(null);
+  const chosen = step.top.find((c) => windowKey(c.window) === chosenKey) ?? step.top[0]!;
+  const alternatives: AvidChoice[] = step.top.filter((c) => c !== chosen).map((c) => ({ window: c.window, kind: 'alt', title: `Top in ${windowLabel(c.window)}, ${Math.round(c.offsetDeg)}° off` }));
   return (
     <section className="panel">
       <h3>{title}</h3>
       <p className="note">
         {when} Forward is in <b>{windowLabel(step.forward)}</b>.{' '}
-        {step.top.length === 1 ? 'One placement fits the Top marker.' : `${step.top.length} placements fit the Top marker; the best fit is first.`}
+        {step.top.length === 1 ? 'One placement fits the Top marker.' : `${step.top.length} placements fit the Top marker; the best fit is first. Click a pip or a row to see the others on the card.`}
       </p>
-      <table className="list">
-        <thead>
-          <tr>
-            <th>Top</th>
-            <th>Fit</th>
-            <th>Port</th>
-            <th>Starboard</th>
-            <th>Aft</th>
-            <th>Bottom</th>
-          </tr>
-        </thead>
-        <tbody>
-          {step.top.map((c, i) => (
-            <tr key={windowKey(c.window)}>
-              <td>
-                <b>{windowLabel(c.window)}</b>
-              </td>
-              <td>{i === 0 ? `best fit, ${Math.round(c.offsetDeg)}° off` : `${Math.round(c.offsetDeg)}° off`}</td>
-              <td>{windowLabel(c.markers.port)}</td>
-              <td>{windowLabel(c.markers.starboard)}</td>
-              <td>{windowLabel(c.markers.aft)}</td>
-              <td>{windowLabel(c.markers.bottom)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="avid-field">
+        <div className="avid-row compact">
+          <AvidFigure title={`${title}: markers with Top in ${windowLabel(chosen.window)}`} markers={chosen.markers} choices={alternatives} onPick={(w) => setChosenKey(windowKey(w))} caption={<AvidLegend />} />
+          <div className="scroll">
+            <table className="list">
+              <thead>
+                <tr>
+                  <th>Top</th>
+                  <th>Fit</th>
+                  <th>Port</th>
+                  <th>Starboard</th>
+                  <th>Aft</th>
+                  <th>Bottom</th>
+                </tr>
+              </thead>
+              <tbody>
+                {step.top.map((c, i) => (
+                  <tr key={windowKey(c.window)} className={c === chosen ? 'chosen' : 'pick'} onClick={() => setChosenKey(windowKey(c.window))}>
+                    <td>
+                      <b>{windowLabel(c.window)}</b>
+                    </td>
+                    <td>{i === 0 ? `best fit, ${Math.round(c.offsetDeg)}° off` : `${Math.round(c.offsetDeg)}° off`}</td>
+                    <td>{windowLabel(c.markers.port)}</td>
+                    <td>{windowLabel(c.markers.starboard)}</td>
+                    <td>{windowLabel(c.markers.aft)}</td>
+                    <td>{windowLabel(c.markers.bottom)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+      </div>
+      </div>
       {step.spine && (
         <p className="note">
           The exact Top lies on the spine between {windowLabel(step.spine[0])} and {windowLabel(step.spine[1])}: the marker may sit on that spine (B2.143).
@@ -128,6 +141,10 @@ export function AvidHelperScreen({ ship, onBack }: AvidHelperScreenProps = {}) {
   const edges = edgeNeighbours(last);
   const corners = cornerNeighbours(last);
   const next = [...edges, ...corners].find((w) => windowKey(w) === nextKey) ?? edges[0]!;
+  const stepChoices: AvidChoice[] = [
+    ...edges.map((w) => ({ window: w, kind: 'step' as const, title: `step to ${windowLabel(w)}` })),
+    ...corners.map((w) => ({ window: w, kind: 'diagonal' as const, disabled: diagonalUsed, title: `diagonal step to ${windowLabel(w)}${diagonalUsed ? ' (already used)' : ''}` })),
+  ];
 
   const steps = pivots ? path : [];
   const rollPlan = rollWindows > 0 ? { windows: rollWindows, direction: rollDirection } : null;
@@ -182,6 +199,7 @@ export function AvidHelperScreen({ ship, onBack }: AvidHelperScreenProps = {}) {
               <p className="note">
                 Aft {windowLabel(m0.aft)}, Port {windowLabel(m0.port)}, Starboard {windowLabel(m0.starboard)}, Bottom {windowLabel(m0.bottom)}.
               </p>
+              <AvidLegend />
             </section>
             <section className="panel">
               <h3>Pivot</h3>
@@ -195,6 +213,21 @@ export function AvidHelperScreen({ ship, onBack }: AvidHelperScreenProps = {}) {
                     <span className="label">Path</span>
                     <PathChain start={m0.forward} path={path} midpointAfter={trace.pivotSplit[0]} onCut={cut} />
                     {path.length === 0 && <span className="note">No step yet: add the windows Forward passes through, in order, ending where it points at End of Turn.</span>}
+                  </div>
+                  <div className="avid-field">
+                    <div className="avid-row">
+                      <AvidFigure
+                        title="Pivot: the path Forward walks; click a pip to add the next window"
+                        markers={m0}
+                        paths={[{ windows: [m0.forward, ...path], kind: 'forward' }]}
+                        choices={stepChoices}
+                        onPick={(w) => {
+                          setPath([...path, w]);
+                          setNextKey(null);
+                        }}
+                      />
+                      <span className="note">Filled pips are the windows Forward can step to next; hollow ones the diagonal step, allowed once. A circled pip is the window's lower half. A dashed leg of the path enters the lower half.</span>
+                    </div>
                   </div>
                   <div className="field">
                     <label>Next window</label>
@@ -282,8 +315,8 @@ export function AvidHelperScreen({ ship, onBack }: AvidHelperScreenProps = {}) {
                 {w}
               </p>
             ))}
-            <StepTable title="At the Midpoint" step={trace.midpoint} when="After half the pivot and half the roll," />
-            <StepTable title="At End of Turn" step={trace.endOfTurn} when="With the pivot and roll complete," />
+            <StepView title="At the Midpoint" step={trace.midpoint} when="After half the pivot and half the roll," />
+            <StepView title="At End of Turn" step={trace.endOfTurn} when="With the pivot and roll complete," />
             <p className="note">
               The other markers follow from Forward and the Top chosen: Port and Starboard are three windows from Forward, Aft and Bottom opposite Forward and Top. The attitude is rotated
               along the nose's path pulled taut through the windows entered: a path round the pole skirts it rather than circling it. Which side of the pole the path takes, or whether it
