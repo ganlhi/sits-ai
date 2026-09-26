@@ -27,13 +27,24 @@ describe('vertical plotting grid (Movement Card)', () => {
 });
 
 describe('horizontal plotting fans (B3.254–255)', () => {
-  it('thrust 4 in A: 4 in A, or 3 in A and 1 in F, or 3 in A and 1 in B', () => {
+  it('hex-side fan from a yellow or blue window: straight up to 3, one off from 4', () => {
+    expect(horizontalSplits(1, 0, 'yellow')).toEqual([{ A: 1 }]);
+    expect(horizontalSplits(2, 0, 'blue')).toEqual([{ A: 2 }]);
+    expect(horizontalSplits(3, 0, 'blue')).toEqual([{ A: 3 }]);
     expect(horizontalSplits(4, 0, 'yellow')).toEqual([{ A: 4 }, { A: 3, B: 1 }, { A: 3, F: 1 }]);
+    expect(horizontalSplits(5, 0, 'blue')).toEqual([{ A: 5 }, { A: 4, B: 1 }, { A: 4, F: 1 }]);
+    expect(horizontalSplits(6, 0, 'yellow')).toEqual([{ A: 6 }, { A: 5, B: 1 }, { A: 5, F: 1 }]);
+    expect(horizontalSplits(7, 0, 'blue')).toEqual([{ A: 7 }, { A: 6, B: 1 }, { A: 6, F: 1 }]);
   });
 
-  it('the green hexes add two-off splits only for a green-ring facing', () => {
-    expect(horizontalSplits(4, 0, 'green')).toEqual([{ A: 4 }, { A: 3, B: 1 }, { A: 3, F: 1 }, { A: 2, B: 2 }, { A: 2, F: 2 }]);
+  it('the green hexes for a green-ring facing: one off on rows 2 and 3, two off on rows 4 and 5, none on 1, 6 and 7', () => {
+    expect(horizontalSplits(1, 0, 'green')).toEqual([{ A: 1 }]);
+    expect(horizontalSplits(2, 0, 'green')).toEqual([{ A: 2 }, { A: 1, B: 1 }, { A: 1, F: 1 }]);
     expect(horizontalSplits(3, 0, 'green')).toEqual([{ A: 3 }, { A: 2, B: 1 }, { A: 2, F: 1 }]);
+    expect(horizontalSplits(4, 0, 'green')).toEqual([{ A: 4 }, { A: 3, B: 1 }, { A: 3, F: 1 }, { A: 2, B: 2 }, { A: 2, F: 2 }]);
+    expect(horizontalSplits(5, 0, 'green')).toEqual([{ A: 5 }, { A: 4, B: 1 }, { A: 4, F: 1 }, { A: 3, B: 2 }, { A: 3, F: 2 }]);
+    expect(horizontalSplits(6, 0, 'green')).toEqual([{ A: 6 }, { A: 5, B: 1 }, { A: 5, F: 1 }]);
+    expect(horizontalSplits(7, 0, 'green')).toEqual([{ A: 7 }, { A: 6, B: 1 }, { A: 6, F: 1 }]);
   });
 
   it('thrust 4 in B/C: 2B 2C, 3B 1C or 1B 3C', () => {
@@ -51,16 +62,20 @@ describe('full thrust plots', () => {
   it('a ship facing A(blue, upper) thrusting 4 may take 3 in A and 3 in + (B3.25 example)', () => {
     const plots = thrustOptions(4, blue(0, 'upper'));
     expect(has(plots, velocity({ A: 3, '+': 3 }))).toBe(true);
-    expect(has(plots, velocity({ A: 2, B: 1, '+': 3 }))).toBe(true);
+    expect(has(plots, velocity({ A: 2, B: 1, '+': 3 }))).toBe(false); // the green hexes are not for a blue window
     expect(has(plots, velocity({ A: 4, '+': 2 }))).toBe(true);
     expect(has(plots, velocity({ A: 4 }))).toBe(false);
   });
 
-  it('a level ship facing A thrusting 2 may take 2 in A, or 1 in A and 1 in B or F', () => {
+  it('a level ship facing A thrusting 2 takes 2 in A only; a green-ring ship may bend it 1 in A and 1 in B or F', () => {
     const plots = thrustOptions(2, yellow(0));
     expect(has(plots, velocity({ A: 2 }))).toBe(true);
-    expect(has(plots, velocity({ A: 1, B: 1 }))).toBe(true);
-    expect(has(plots, velocity({ A: 1, F: 1 }))).toBe(true);
+    expect(has(plots, velocity({ A: 1, B: 1 }))).toBe(false);
+    expect(has(plots, velocity({ A: 1, F: 1 }))).toBe(false);
+    const bent = thrustOptions(3, green(0, 'upper')); // cell (2,3) is the green band's 3
+    expect(has(bent, velocity({ A: 2, '+': 3 }))).toBe(true);
+    expect(has(bent, velocity({ A: 1, B: 1, '+': 3 }))).toBe(true);
+    expect(has(bent, velocity({ A: 1, F: 1, '+': 3 }))).toBe(true);
     expect(plots.every((p) => p.v === 0)).toBe(true); // 2 is too little for the shallow cells
   });
 

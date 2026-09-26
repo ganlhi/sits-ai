@@ -231,6 +231,18 @@ areas of the AVID's vector arrows (`B3.2`, `B4.2`).
 Thrust available per turn is the leftmost unchecked box of the **Maximum Thrust** track. A ship
 thrusts along its **facing** — specifically, along its **midpoint orientation** when pivoting.
 
+Horizontal fans (`B3.254`, `B3.255`):
+
+- Facing a **hex-edge** window, the horizontal thrust goes down the hex-side fan. Row by row:
+  thrust 1 is straight only; 2 and 3 are straight, with **green** hexes one to either side;
+  4 and 5 are straight or one to either side, with **green** hexes two to either side;
+  6 and 7 are straight or one to either side, with no green hexes.
+- Facing a **hex-corner** window, the thrust is split between the two bracketing map directions,
+  balanced or nearly so (thrust 4 in B/C → 2B 2C, 3B 1C or 1B 3C).
+- The **green hexes** may be used only by a ship facing a **green-ring** window (`B3.2541`): its
+  60°-wide window may really be pointing towards a corner, so it may bend further that way. A
+  green-ring ship never uses the hex-corner fan.
+
 ### 7.3 Displacement
 
 **Displacement** is the extra movement a ship gets in the turn it thrusts, reflecting that the

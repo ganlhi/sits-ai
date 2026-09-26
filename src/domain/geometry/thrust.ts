@@ -10,9 +10,12 @@
  *    direction" of B3.251.
  *
  * 2. The HORIZONTAL fans split h between the two map directions bracketing the facing:
- *    - hex edge fan: all of h in the edge direction, or h−1 in it and 1 in either neighbour
- *      (B3.254: "thrust 4 in A → 3 in A, 1 in F" or "3 in A, 1 in B"). The two green hexes
- *      (h−2 and 2, for h = 4 and 5) are only for ships facing a green-ring window (B3.2541).
+ *    - hex edge fan, row by row from the card: row 1 is straight only. Rows 2 and 3 are
+ *      straight, with green hexes for h−1 and 1 in either neighbour. Rows 4 and 5 have white
+ *      hexes for h−1 and 1, and green hexes for h−2 and 2. Rows 6 and 7 have white hexes for
+ *      h−1 and 1 and no green ones. The green hexes are only for ships facing a green-ring
+ *      window (B3.254, B3.2541): a green window is 60° wide, so its ship may really be pointing
+ *      towards a corner and deviates that way.
  *    - hex corner fan: balanced or nearly balanced splits, transcribed row by row from the card
  *      (B3.255: "thrust 4 in B/C → 2B 2C, 3B 1C or 1B 3C").
  */
@@ -90,8 +93,9 @@ export function horizontalSplits(h: number, azIndex: number | null, ring: Ring):
     const next = directionAt(azIndex / 2 + 1);
     const prev = directionAt(azIndex / 2 - 1);
     const out: HorizontalSplit[] = [{ [d]: h }];
-    if (h >= 2) out.push({ [d]: h - 1, [next]: 1 }, { [d]: h - 1, [prev]: 1 });
-    if (ring === 'green' && (h === 4 || h === 5)) out.push({ [d]: h - 2, [next]: 2 }, { [d]: h - 2, [prev]: 2 });
+    const green = ring === 'green';
+    if (h >= 4 || (green && h >= 2)) out.push({ [d]: h - 1, [next]: 1 }, { [d]: h - 1, [prev]: 1 });
+    if (green && (h === 4 || h === 5)) out.push({ [d]: h - 2, [next]: 2 }, { [d]: h - 2, [prev]: 2 });
     return out;
   }
   const d1 = directionAt((azIndex - 1) / 2);
